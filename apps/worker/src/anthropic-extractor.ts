@@ -37,8 +37,11 @@ export class AnthropicExtractor implements Extractor {
       );
     } catch (err) {
       if (err instanceof Anthropic.APIError) {
+        // Prefer the API's own message over the SDK's "400 {json}" summary.
+        const body = err.error as { error?: { message?: string } } | undefined;
+        const message = body?.error?.message ?? err.message;
         const status = err.status ? ` ${err.status}` : "";
-        return { ok: false, error: `Anthropic API error${status}: ${err.message}`, rawResponse: null };
+        return { ok: false, error: `Anthropic API error${status}: ${message}`, rawResponse: null };
       }
       throw err;
     }

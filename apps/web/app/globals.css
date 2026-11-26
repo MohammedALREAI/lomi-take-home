@@ -1,0 +1,336 @@
+/* The app's one theme: every colour, space and size comes from here. */
+:root {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.5rem;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius: 6px;
+
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --border: #d9dde3;
+  --text: #1c2430;
+  --text-muted: #5b6573;
+  --accent: #2557d6;
+  --accent-text: #ffffff;
+  --mark: #fff1a8;
+
+  /* Review and extraction states. Each has a background and a text colour. */
+  --pending-bg: #fff4dc;
+  --pending-text: #8a5300;
+  --gap-bg: #fde8e8;
+  --gap-text: #a11d1d;
+  --carried-bg: #e3edff;
+  --carried-text: #1d4aa8;
+  --done-bg: #e2f5e9;
+  --done-text: #19693a;
+  --progress-bg: #eceff3;
+  --progress-text: #3e4754;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+a {
+  color: var(--accent);
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  line-height: 1.3;
+}
+
+h1 {
+  font-size: var(--text-xl);
+}
+
+h2 {
+  font-size: var(--text-lg);
+}
+
+h3 {
+  font-size: var(--text-md);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: var(--space-1) var(--space-3);
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+input,
+select,
+textarea {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-1) var(--space-2);
+  background: var(--surface);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4);
+  display: grid;
+  gap: var(--space-6);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.muted {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+}
+
+.row {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.error {
+  color: var(--gap-text);
+  font-size: var(--text-sm);
+}
+
+/* Badges: text always says the state; colour only reinforces it. */
+.badge {
+  display: inline-block;
+  padding: 0 var(--space-2);
+  border-radius: 999px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badge-pending { background: var(--pending-bg); color: var(--pending-text); }
+.badge-gap { background: var(--gap-bg); color: var(--gap-text); }
+.badge-carried { background: var(--carried-bg); color: var(--carried-text); }
+.badge-done { background: var(--done-bg); color: var(--done-text); }
+.badge-progress { background: var(--progress-bg); color: var(--progress-text); }
+.badge-failed { background: var(--gap-bg); color: var(--gap-text); }
+
+.banner {
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.banner-progress { background: var(--progress-bg); color: var(--progress-text); }
+.banner-failed { background: var(--gap-bg); color: var(--gap-text); }
+.banner-info { background: var(--carried-bg); color: var(--carried-text); }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+th,
+td {
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+th {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.progress-bar {
+  display: flex;
+  height: 8px;
+  width: 160px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--progress-bg);
+}
+.progress-bar > span { display: block; height: 100%; }
+.progress-bar .seg-pending { background: var(--pending-text); }
+.progress-bar .seg-carried { background: var(--carried-text); }
+.progress-bar .seg-done { background: var(--done-text); }
+
+.review-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-6);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .review-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.cards {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
+  display: grid;
+  gap: var(--space-2);
+}
+.card-pending { border-left-color: var(--pending-text); }
+.card-gap { border-left-color: var(--gap-text); }
+.card-carried { border-left-color: var(--carried-text); }
+.card-done { border-left-color: var(--done-text); }
+.card-selected { box-shadow: 0 0 0 2px var(--accent); }
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+}
+
+.value {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.quote {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+}
+
+.previous {
+  border: 1px dashed var(--pending-text);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.correct-form {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.document-text {
+  position: sticky;
+  top: var(--space-4);
+  max-height: calc(100vh - var(--space-8));
+  overflow: auto;
+}
+
+.document-text pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+mark {
+  background: var(--mark);
+  color: inherit;
+}
+
+.versions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.versions a[aria-current="page"] {
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--text);
+}

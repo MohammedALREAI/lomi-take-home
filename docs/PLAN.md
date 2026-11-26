@@ -200,11 +200,21 @@ Riskiest first, about 9.5 hours in total.
 
 ### 7. UI (1 h)
 
-- [ ] use our skills for ui/ux.
-- [ ] Document list.
-- [ ] Detail page: value cards, review form, previous value and review.
-- [ ] Upload new version, version switcher, retry.
-- [ ] Conditional polling.
+- [x] UI/UX skills: no existing page or theme to follow, so the page shape was agreed in words first; one theme as CSS variables in `app/globals.css`; components in `app/_components/`.
+- [x] Document list: status, current version, review progress, upload.
+- [x] Detail page: value cards beside the verbatim quote, approve/correct with note, gaps with reasons, previous value and review on changed values, carried-over badge, quote highlighted in the document text.
+- [x] Upload new version, version switcher, retry; older versions read-only.
+- [x] Conditional polling (2s, only while a version is queued or extracting).
+- [x] Checked in the browser end to end: invoice v1 reviewed, v2 uploaded, exactly `due_date` and `total_amount` back to review, the other three carried over (including a correction and its note).
+
+### 7b. Redesign to the agreed mockup, fully responsive (after phases 8–10)
+
+- [ ] Theme: the mockup's palette (navy sidebar, blue primary), larger radius, shadows, a colour per document type, all in `app/globals.css`.
+- [ ] New components in `app/_components/`: `AppShell` (sidebar + top bar, used by both pages), `PageHeader`, `TypeBadge`, `Icon` (hand-written SVGs, no icon library).
+- [ ] Only what works: sidebar with the logo and Documents; a search box that filters the list; a Refresh button. No placeholder nav, notifications, profile, thumbnails or "…" menu.
+- [ ] List page as in the mockup: upload card with "Supported formats", table with type badge, status, progress bar with "x / y reviewed", short error with "View details", View and Retry actions.
+- [ ] Review page (not in the mockup): same agreed shape, restyled with the new theme.
+- [ ] Responsive: the sidebar collapses to a top bar and the table becomes stacked cards on narrow screens; review page stacks cards above the document text.
 
 ### 8. Finish compose (30 min)
 
