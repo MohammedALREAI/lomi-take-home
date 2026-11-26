@@ -11,6 +11,16 @@
       "dependsOn": ["^build"],
       "outputs": []
     },
+    "dev": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "persistent": true
+    },
+    "test:e2e": {
+      "dependsOn": ["^build"],
+      "cache": false,
+      "env": ["E2E_DATABASE_URL", "CI"]
+    },
     "test:integration": {
       "dependsOn": ["^build"],
       "cache": false

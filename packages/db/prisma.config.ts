@@ -1,5 +1,10 @@
-import "dotenv/config";
+import { config } from "dotenv";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "prisma/config";
+
+// Local development keeps its settings in the root .env. Variables already set
+// (Docker sets DATABASE_URL) win, and the image never contains a .env file.
+config({ path: fileURLToPath(new URL("../../.env", import.meta.url)), quiet: true });
 
 export default defineConfig({
   schema: "prisma/schema.prisma",

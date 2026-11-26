@@ -2,13 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Current state
+## Orientation
 
-There is no application code yet: only the assignment brief ([docs/ASSIGNMENT.md](docs/ASSIGNMENT.md)), the plan and TODO list ([docs/PLAN.md](docs/PLAN.md)), the job description it is for ([jd.md](jd.md), useful for the team's stack preferences), and `fixtures/`. No build, lint or test commands exist. Once they do, replace this section with them (including how to run a single test) and describe the architecture as built.
+The brief is [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md) and is the source of truth. [docs/PLAN.md](docs/PLAN.md) records decisions and the TODO list; keep its checkboxes current. [README.md](README.md) is the deliverable for the reviewers and explains the design; read it before changing coordination or carry-over. Deadline: **28 November 2026, 23:59 UTC**; record deliberate cuts in the README.
 
-The brief is the source of truth and the summary below does not replace it. `docs/PLAN.md` records the decisions made so far; keep its TODO checkboxes current. The root `README.md` is reserved for the deliverable README.
+## Commands
 
-Deadline: **28 November 2026, 23:59 UTC**. The brief prefers a smaller thing done well; record deliberate cuts in the README.
+```sh
+pnpm install
+docker compose up -d postgres redis     # Postgres on localhost:5433, Redis on localhost:6380
+pnpm build                              # turbo; db's build runs `prisma generate`
+pnpm lint
+pnpm test                               # unit tests, no services
+pnpm test:integration                   # needs the compose Postgres
+docker compose up --build               # whole stack: web :3000, api :3001 (Swagger at /docs)
+```
+
+- One package: `pnpm --filter @app/core test`. One test: `pnpm --filter @app/core exec vitest run -t "token boundaries"`. Integration tests: `pnpm --filter @app/db test:integration` (also `@app/worker`, `@app/api`).
+- Integration tests use their own databases (`app_test`, `app_test_api`, `app_test_worker`), created and migrated by a vitest globalSetup from `@app/db/testing`.
+- Packages are consumed from `dist`, so build a package after changing it before its dependents see the change (turbo does this for `build` and `test`).
+- Schema change: edit `packages/db/prisma/schema.prisma`, then `pnpm --filter @app/db exec prisma migrate dev --name <name>` against the dev database. **Never edit a migration that any database may have applied**; add a new one.
+- `ANTHROPIC_API_KEY` goes in the root `.env` (gitignored), never in `.env.example`.
+
+## Architecture
+
+- `packages/core`: pure functions, no IO. Field definitions (mirrors `fixtures/expected-fields.json`, a test enforces it), evidence matching, value canonicalization, `validateExtraction` (unverified evidence becomes a gap), `decideCarryOver`, zod request contracts.
+- `packages/db`: Prisma 7 with `@prisma/adapter-pg`. All state transitions live in `src/coordination.ts` (claim with lease, fenced writes, commit with carry-over, reconcile, retry, review) and read models in `src/queries.ts`. Lock order is always the `Document` row first.
+- `packages/queue`: BullMQ queue name and best-effort enqueue. Redis is never the source of truth.
+- `apps/worker`: plain Node, no Nest. `process.ts` runs one version under a lease; `main.ts` runs the BullMQ consumer and the reconciler.
+- `apps/api`: NestJS controllers only; inject with explicit `@Inject(...)` so tests work under Vitest without decorator metadata.
+- `apps/web`: Next.js client pages; the browser calls `/api/*`, rewritten to `API_URL` at build time. One theme in `app/globals.css`; components in `app/_components/`.
+- Everything is ESM (`"type": "module"`, `.js` import suffixes in TypeScript).
 
 ## What is being built
 

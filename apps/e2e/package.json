@@ -1,0 +1,17 @@
+{
+  "name": "@app/e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@app/api": "workspace:*",
+    "@app/db": "workspace:*",
+    "@app/web": "workspace:*",
+    "@app/worker": "workspace:*",
+    "@playwright/test": "^1.55.0"
+  }
+}

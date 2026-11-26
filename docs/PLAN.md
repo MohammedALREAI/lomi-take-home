@@ -218,10 +218,11 @@ Riskiest first, about 9.5 hours in total.
 
 ### 8. Finish compose (30 min)
 
-- [ ] `worker` and `web` services.
-- [ ] Healthchecks and restart policy.
-- [ ] Idempotent seed.
-- [ ] `.env.example`.
+- [x] `worker` and `web` services (the web image is built with `API_URL=http://api:3001`).
+- [x] Healthchecks and restart policy (`unless-stopped`; web waits for a healthy api).
+- [x] Idempotent seed (`packages/db/src/seed.ts`, run by `migrate` after the migrations), with integration tests.
+- [x] `.env.example`.
+- [ ] Verified with a clean `docker compose down -v && docker compose up --build`.
 
 ### 9. Drills from a clean start (30 min)
 
@@ -229,12 +230,20 @@ See "Verification".
 
 ### 10. Docs (35 min)
 
-- [ ] README covering everything the brief asks for: how to run it, layout, schema, the Redis/Postgres line, open decisions, cuts, and what changes at 10,000 documents.
-- [ ] Update `CLAUDE.md` with the real commands.
+- [x] README covering everything the brief asks for: how to run it, layout, schema, the Redis/Postgres line, open decisions, cuts, and what changes at 10,000 documents. Draft; recheck against the drills.
+- [x] Update `CLAUDE.md` with the real commands.
+
+### 10b. Dev setup, CI and e2e
+
+- [x] `docker-compose.dev.yml` (Postgres + Redis only, own volume) with `pnpm dev:up` / `pnpm dev` / `pnpm dev:down`.
+- [x] Test-only `EXTRACTOR=rules` worker mode, checked against the fixtures by unit tests.
+- [x] Playwright e2e (`apps/e2e`): invoice review, revision and carry-over; gap shown with its reason.
+- [x] GitHub Actions: checks job (build, lint, unit, integration, e2e) and docker job (`compose up --build` + `scripts/smoke-test.sh` with FLUSHALL and restart).
+- [ ] First CI run green.
 
 ### 11. Submit
 
-- [ ] Push to our own GitHub repository (`origin` currently points to the Lomi-Labs repository).
+- [x] Push to our own GitHub repository.
 - [ ] Public gist with the coding agent session logs.
 - [ ] Walkthrough video, if time allows.
 - [ ] Submit at submit.lomilabs.ai.

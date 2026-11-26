@@ -12,5 +12,8 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm fetch
 COPY . .
 RUN pnpm install --offline --frozen-lockfile
+# The web app forwards /api/* to the API; inside compose that is the api service.
+ENV API_URL=http://api:3001
+ENV NEXT_TELEMETRY_DISABLED=1 TURBO_TELEMETRY_DISABLED=1
 RUN pnpm turbo run build
 ENV NODE_ENV=production

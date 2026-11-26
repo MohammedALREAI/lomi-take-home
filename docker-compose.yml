@@ -1,14 +1,18 @@
+# One image for every app service. Only `migrate` builds it (it starts first);
+# the others reuse it, so it is built and exported once.
 x-app: &app
   image: take-home-app
-  build:
-    context: .
-    target: app
+  pull_policy: never
   env_file:
+    # Optional: put ANTHROPIC_API_KEY (and LLM_MODEL) here.
     - path: .env
       required: false
   environment:
     DATABASE_URL: postgresql://app:app@postgres:5432/app
     REDIS_URL: redis://redis:6379
+    # Test only: EXTRACTOR=rules makes the worker use regex extraction instead
+    # of Claude (CI uses it). Empty by default, which means the real model.
+    EXTRACTOR: ${EXTRACTOR:-}
 
 services:
   postgres:
@@ -38,9 +42,15 @@ services:
       timeout: 5s
       retries: 30
 
+  # One-shot: applies migrations, then seeds version 1 of the fixtures.
+  # Both steps are idempotent, so this runs on every start.
   migrate:
     <<: *app
-    command: ["pnpm", "--filter", "@app/db", "db:deploy"]
+    build:
+      context: .
+      target: app
+    pull_policy: build
+    command: ["pnpm", "--filter", "@app/db", "db:setup"]
     restart: "no"
     depends_on:
       postgres:
@@ -52,6 +62,11 @@ services:
     restart: unless-stopped
     ports:
       - "3001:3001"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -68,6 +83,17 @@ services:
       migrate:
         condition: service_completed_successfully
       redis:
+        condition: service_healthy
+
+  web:
+    <<: *app
+    working_dir: /app/apps/web
+    command: ["node", "node_modules/next/dist/bin/next", "start", "--port", "3000"]
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
         condition: service_healthy
 
 volumes:

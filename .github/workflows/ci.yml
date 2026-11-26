@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Build, lint, unit, integration and e2e tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: app
+          POSTGRES_PASSWORD: app
+          POSTGRES_DB: app
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U app -d app"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+      redis:
+        image: redis:7.4
+        ports: ["6380:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      TURBO_TELEMETRY_DISABLED: 1
+      NEXT_TELEMETRY_DISABLED: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build, lint, unit tests
+        run: pnpm turbo run build lint test
+      - name: Integration tests (Postgres)
+        run: pnpm test:integration
+      - name: Install Playwright's browser
+        run: pnpm --filter @app/e2e exec playwright install --with-deps chromium
+      - name: End-to-end tests
+        run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/e2e/playwright-report
+          retention-days: 7
+
+  docker:
+    name: docker compose up, as a reviewer runs it
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # No API key in CI: the worker uses the test-only rule extractor.
+      EXTRACTOR: rules
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the stack
+        run: docker compose up --build -d
+      - name: Smoke test, Redis flush and restart
+        run: ./scripts/smoke-test.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color
