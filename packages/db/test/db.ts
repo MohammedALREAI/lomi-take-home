@@ -1,18 +1,6 @@
 import type { ValidatedValue } from "@app/core";
-import { createPrismaClient, type Db } from "../src/client.js";
 
-export const TEST_DATABASE_URL =
-  process.env.TEST_DATABASE_URL ?? "postgresql://app:app@localhost:5433/app_test";
-
-export function testDb(): Db {
-  return createPrismaClient(TEST_DATABASE_URL);
-}
-
-export async function resetDb(db: Db) {
-  await db.$executeRawUnsafe(
-    `TRUNCATE "Review", "ExtractedValue", "ExtractionRun", "DocumentVersion", "Document" RESTART IDENTITY CASCADE`,
-  );
-}
+export { resetDb, testDb } from "../src/testing.js";
 
 export const PDF = new Uint8Array([0x25, 0x50, 0x44, 0x46]);
 

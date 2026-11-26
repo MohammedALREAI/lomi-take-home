@@ -1,0 +1,21 @@
+{
+  "name": "@app/worker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.14.0",
+    "@app/core": "workspace:*",
+    "@app/db": "workspace:*",
+    "@app/queue": "workspace:*",
+    "bullmq": "~5.81.6",
+    "unpdf": "^2.2.2"
+  }
+}

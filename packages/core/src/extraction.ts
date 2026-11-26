@@ -17,6 +17,15 @@ export function llmOutputSchema(type: DocumentType) {
   return z.object(shape).strict();
 }
 
+/** Parses and checks the model's JSON answer. */
+export function parseLlmOutput(
+  type: DocumentType,
+  json: unknown,
+): { ok: true; output: Record<string, LlmField> } | { ok: false; error: string } {
+  const parsed = llmOutputSchema(type).safeParse(json);
+  return parsed.success ? { ok: true, output: parsed.data } : { ok: false, error: z.prettifyError(parsed.error) };
+}
+
 /** JSON Schema for the provider's structured-output mode (all keys required, no extras). */
 export function llmOutputJsonSchema(type: DocumentType): Record<string, unknown> {
   const fieldSchema = {

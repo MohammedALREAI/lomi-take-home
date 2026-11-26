@@ -58,5 +58,17 @@ services:
       redis:
         condition: service_healthy
 
+  worker:
+    <<: *app
+    command: ["node", "apps/worker/dist/main.js"]
+    restart: unless-stopped
+    # Give an in-flight extraction time to stop cleanly on restart.
+    stop_grace_period: 10s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
 volumes:
   pgdata:

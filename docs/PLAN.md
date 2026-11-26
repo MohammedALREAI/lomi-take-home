@@ -153,7 +153,7 @@ Riskiest first, about 9.5 hours in total.
 
 ### 1. Spike (45 min)
 
-- [ ] Run unpdf on all four fixtures; check that `Due Date: 2025-10-14` is on its own line.
+- [x] Run unpdf on all four fixtures; check that `Due Date: 2025-10-14` is on its own line.
 - [ ] One real structured-output call to `claude-opus-5-5`.
 - [ ] Extract invoice v1 and v2 three to five times; inspect evidence length and value stability.
 - [ ] Decide whether the evidence-trimming rule and the refusal fallback are needed.
@@ -184,19 +184,23 @@ Riskiest first, about 9.5 hours in total.
 
 ### 5. Worker (1 h)
 
-- [ ] BullMQ consumer, heartbeat, per-attempt deadline.
-- [ ] Reconciler.
-- [ ] Fake extractor for tests.
-- [ ] Anthropic extractor that stores the prompt and raw response before parsing.
+- [x] BullMQ consumer, heartbeat, per-attempt deadline.
+- [x] Reconciler (startup, every 10s, and after each job).
+- [x] Fake extractor for tests.
+- [x] Anthropic extractor that stores the prompt and raw response before parsing. Not yet run against the real API: needs `ANTHROPIC_API_KEY`.
+- [x] Parse test on the real fixtures: unpdf keeps each invoice header field on its own line, so no line reconstruction is needed.
+- [x] `packages/queue`: queue name and best-effort enqueue shared by api and worker.
 
 ### 6. API (45 min)
 
 - [ ] Endpoints and file upload.
 - [ ] zod validation and error mapping.
 - [ ] Non-blocking enqueue.
+- [ ] use document api swiiger
 
 ### 7. UI (1 h)
 
+- [ ] use our skills for ui/ux.
 - [ ] Document list.
 - [ ] Detail page: value cards, review form, previous value and review.
 - [ ] Upload new version, version switcher, retry.
