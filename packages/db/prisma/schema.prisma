@@ -1,0 +1,122 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DocumentType {
+  invoice
+  lease
+  market_report
+}
+
+enum VersionStatus {
+  queued
+  extracting
+  extracted
+  failed
+}
+
+enum ReviewAction {
+  approve
+  correct
+}
+
+model Document {
+  // Manifest ids such as "doc-invoice-001" for seeded documents, uuids for uploads.
+  id        String       @id
+  type      DocumentType
+  title     String
+  createdAt DateTime     @default(now())
+
+  versions DocumentVersion[]
+}
+
+model DocumentVersion {
+  id         String   @id @default(uuid()) @db.Uuid
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id])
+  number     Int
+  fileName   String
+  pdf        Bytes
+  // Normalized text from the PDF. Evidence offsets index into this exact string.
+  parsedText String?
+
+  status        VersionStatus @default(queued)
+  failureReason String?
+  attempts      Int           @default(0)
+  // Lease held by the worker while extracting; every worker write is fenced on it.
+  leaseToken     String?   @db.Uuid
+  leaseExpiresAt DateTime?
+
+  createdAt   DateTime  @default(now())
+  extractedAt DateTime?
+
+  values ExtractedValue[]
+  runs   ExtractionRun[]
+
+  @@unique([documentId, number])
+  @@index([status])
+}
+
+model ExtractedValue {
+  id        String          @id @default(uuid()) @db.Uuid
+  versionId String          @db.Uuid
+  version   DocumentVersion @relation(fields: [versionId], references: [id])
+  field     String
+  // The model's value; null when the field is a gap.
+  value         String?
+  evidence      String?
+  evidenceStart Int?
+  evidenceEnd   Int?
+  gapReason     String?
+  // The same field in the previous extracted version, shown beside a changed value.
+  baselineValueId String?          @db.Uuid
+  baseline        ExtractedValue?  @relation("Baseline", fields: [baselineValueId], references: [id])
+  successors      ExtractedValue[] @relation("Baseline")
+  createdAt       DateTime         @default(now())
+
+  reviews Review[]
+
+  @@unique([versionId, field])
+}
+
+// Append-only. The latest review of a value decides its state.
+model Review {
+  id                  String         @id @default(uuid()) @db.Uuid
+  // Insertion order. "Latest review" means highest seq; createdAt can tie.
+  seq                 Int            @default(autoincrement())
+  valueId             String         @db.Uuid
+  value               ExtractedValue @relation(fields: [valueId], references: [id])
+  action              ReviewAction
+  correctedValue      String?
+  note                String?
+  carriedFromReviewId String?        @db.Uuid
+  carriedFrom         Review?        @relation("CarryOver", fields: [carriedFromReviewId], references: [id])
+  carriedTo           Review[]       @relation("CarryOver")
+  createdAt           DateTime       @default(now())
+
+  @@index([valueId, seq])
+}
+
+// One row per extraction attempt, kept for debugging.
+model ExtractionRun {
+  id          String          @id @default(uuid()) @db.Uuid
+  versionId   String          @db.Uuid
+  version     DocumentVersion @relation(fields: [versionId], references: [id])
+  attempt     Int
+  model       String
+  prompt      String
+  rawResponse String?
+  error       String?
+  usage       Json?
+  startedAt   DateTime        @default(now())
+  finishedAt  DateTime?
+
+  @@index([versionId])
+}
