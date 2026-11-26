@@ -11,4 +11,9 @@ export default tseslint.config(
   {
     languageOptions: { globals: { ...globals.node } },
   },
+  {
+    // Tests read untyped JSON responses.
+    files: ["**/*.test.ts"],
+    rules: { "@typescript-eslint/no-explicit-any": "off" },
+  },
 );

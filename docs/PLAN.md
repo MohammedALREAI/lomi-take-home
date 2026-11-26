@@ -193,10 +193,10 @@ Riskiest first, about 9.5 hours in total.
 
 ### 6. API (45 min)
 
-- [ ] Endpoints and file upload.
-- [ ] zod validation and error mapping.
-- [ ] Non-blocking enqueue.
-- [ ] use document api swiiger
+- [x] Endpoints and file upload (PDF magic-byte check, 10 MB limit).
+- [x] zod validation (contracts in `packages/core`) and error mapping (400/404/409).
+- [x] Non-blocking enqueue. Integration tests run the API with no Redis at all and uploads still answer at once.
+- [x] Swagger docs at `/docs` (OpenAPI JSON at `/docs-json`). Request body schemas are generated from the same zod schemas that validate them.
 
 ### 7. UI (1 h)
 

@@ -6,14 +6,17 @@
   "scripts": {
     "build": "tsc",
     "lint": "eslint .",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "start": "node dist/main.js"
   },
   "dependencies": {
     "@app/core": "workspace:*",
     "@app/db": "workspace:*",
+    "@app/queue": "workspace:*",
     "@nestjs/common": "^11.1.0",
     "@nestjs/core": "^11.1.0",
     "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/swagger": "^11.4.8",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2"
   }
