@@ -106,7 +106,7 @@ async function extractLeased(
 
   if (!extractor) {
     return fail(
-      "No extraction model is configured: neither GEMINI_API_KEY nor ANTHROPIC_API_KEY is set. Set one in .env, restart, then retry.",
+      "No extraction model is configured: GEMINI_API_KEY is not set. Set it in .env, restart, then retry.",
     );
   }
 

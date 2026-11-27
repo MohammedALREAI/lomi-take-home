@@ -7,7 +7,7 @@ The brief is in [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md); the working plan and i
 ## Run it
 
 ```sh
-cp .env.example .env        # then set GEMINI_API_KEY (or ANTHROPIC_API_KEY) in .env
+cp .env.example .env        # then set GEMINI_API_KEY in .env
 docker compose up
 ```
 
@@ -26,11 +26,9 @@ Without an API key everything still starts; extractions end as `failed` with a c
 
 | Variable | Meaning |
 |---|---|
-| `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` | Set one. If both are set, Gemini is used unless `LLM_PROVIDER=anthropic`. |
-| `LLM_PROVIDER` | Optional: `gemini` or `anthropic`, to choose explicitly. |
+| `GEMINI_API_KEY` | Required for extraction. |
 | `GEMINI_MODEL` | Gemini model, default `gemini-3.8-flash`. |
 | `GEMINI_FALLBACK_MODEL` | Optional: tried when the Gemini model stays overloaded, e.g. `gemini-3.1-flash-lite`. |
-| `LLM_MODEL` | Claude model, default `claude-opus-5-5`. |
 
 **What to click first**
 
@@ -45,7 +43,7 @@ Without an API key everything still starts; extractions end as `failed` with a c
 apps/
   api/      NestJS HTTP layer: controllers, validation, error mapping, Swagger, PDF download
   worker/   Plain Node: BullMQ consumer, lease heartbeat, reconciler, PDF parsing,
-            extractors (Gemini, Claude, and a test-only rule extractor)
+            Gemini extractor, and a test-only rule extractor
   web/      Next.js review UI
 packages/
   core/     Pure logic, no IO: field definitions, evidence matching, value
@@ -102,7 +100,7 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 ## Extraction and the hallucination defense
 
 - The worker parses the PDF with `unpdf` and normalizes the text once (NFC, line endings, NUL bytes).
-- It calls **Gemini** or **Claude** (see *Choosing the model*) with structured output: one `{value, evidence, missing_reason}` per expected field. Both sit behind one `Extractor` interface, so the rest of the pipeline does not know which model answered. The prompt asks for a short verbatim passage containing the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
+- It calls **Google Gemini** (see *Choosing the model*) with structured output: one `{value, evidence, missing_reason}` per expected field. The model sits behind a small `Extractor` interface, so the rest of the pipeline does not depend on the provider, and tests swap in a fake or a rule-based extractor. The prompt asks for a short verbatim passage containing the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
 - **Every value must prove itself.** Its evidence has to occur verbatim in this version's parsed text, tolerating differences in whitespace only (PDF tables have runs of spaces, prose wraps mid-phrase) and respecting token boundaries (`Net 30` does not match inside `Net 300`). The value must also read as the field's type. Anything else is stored as a **gap** with a reason, for example *The quoted evidence does not appear in the document: "…"*. A gap is shown to the reviewer, never hidden.
 
 ## What "unchanged" means: review carry-over
@@ -129,7 +127,7 @@ On the fixture invoice, v2 changes the title, payment terms, a line item, subtot
 | Polling, streaming or manual refresh | Poll every 800ms, only while a version is queued or extracting | Extraction takes a few seconds and there is one reviewer per document. Adaptive polling needs no extra infrastructure, feels instant, and stops completely when nothing is running. |
 | Gaps | Reviewable: confirm missing, or correct with a value | A reviewer should be able to close every field. |
 | Re-uploading an identical PDF | Creates a new version | Explicit is simpler; everything carries over. |
-| Which LLM | Gemini or Claude behind one interface, chosen in `.env`, with a fallback model for overloads | The brief allows any provider with structured output. A second provider and a fallback keep extraction working when one model is overloaded or out of credit, which happened while building this. The choice is operational, so it lives in configuration, not in the UI. |
+| Which LLM | Google Gemini with structured output, and a fallback Gemini model for overloads; model chosen in `.env` | The brief allows any provider with structured output. One provider keeps the surface small; the fallback model keeps extraction working when the primary is overloaded, which happened while building this. The model is an operational choice, so it lives in configuration, not in the UI. |
 
 ## Development
 
@@ -137,7 +135,7 @@ Two compose files: `docker-compose.yml` is the full stack as it ships; `docker-c
 
 ```sh
 pnpm install
-cp .env.example .env                     # set GEMINI_API_KEY (or ANTHROPIC_API_KEY); local URLs are already there
+cp .env.example .env                     # set GEMINI_API_KEY; local URLs are already there
 pnpm dev:up                              # Postgres + Redis, migrations, seed
 pnpm dev                                 # api :3001, worker, web :3000 (next dev)
 

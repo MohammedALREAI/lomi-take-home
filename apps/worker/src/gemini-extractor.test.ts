@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { chooseExtractor, DEFAULT_ANTHROPIC_MODEL, DEFAULT_GEMINI_MODEL } from "./choose-extractor.js";
+import { chooseExtractor, DEFAULT_GEMINI_MODEL } from "./choose-extractor.js";
 import { GeminiExtractor, retryDelayMs } from "./gemini-extractor.js";
 
 const validInvoicePayload = {
@@ -267,23 +267,19 @@ describe("retryDelayMs", () => {
 });
 
 describe("chooseExtractor", () => {
-  it("prefers Gemini when GEMINI_API_KEY is present and ignores claude-* LLM_MODEL", () => {
-    const ext = chooseExtractor({
-      GEMINI_API_KEY: "gem-key",
-      ANTHROPIC_API_KEY: "ant-key",
-      LLM_MODEL: "claude-opus-5-5",
-    });
+  it("uses Gemini with the default model when only the key is set", () => {
+    const ext = chooseExtractor({ GEMINI_API_KEY: "gem-key" });
     expect(ext).toBeInstanceOf(GeminiExtractor);
     expect(ext?.model).toBe(DEFAULT_GEMINI_MODEL);
   });
 
-  it("honors LLM_PROVIDER=anthropic even when GEMINI_API_KEY is set", () => {
-    const ext = chooseExtractor({
-      LLM_PROVIDER: "anthropic",
-      GEMINI_API_KEY: "gem-key",
-      ANTHROPIC_API_KEY: "ant-key",
-    });
-    expect(ext?.model).toBe(DEFAULT_ANTHROPIC_MODEL);
+  it("takes the model from GEMINI_MODEL, ignoring quotes around values", () => {
+    const ext = chooseExtractor({ GEMINI_API_KEY: '"gem-key"', GEMINI_MODEL: '"gemini-3.1-flash-lite"' });
+    expect(ext?.model).toBe("gemini-3.1-flash-lite");
+  });
+
+  it("uses the test-only rule extractor when EXTRACTOR=rules, even without a key", () => {
+    expect(chooseExtractor({ EXTRACTOR: "rules" })?.model).toBe("rules (test only)");
   });
 
   it("returns null when no API key is configured", () => {

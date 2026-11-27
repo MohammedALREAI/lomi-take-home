@@ -4,14 +4,14 @@ x-app: &app
   image: take-home-app
   pull_policy: never
   env_file:
-    # Optional: put GEMINI_API_KEY or ANTHROPIC_API_KEY (and model overrides) here.
+    # Optional: put GEMINI_API_KEY (and GEMINI_MODEL / GEMINI_FALLBACK_MODEL) here.
     - path: .env
       required: false
   environment:
     DATABASE_URL: postgresql://app:app@postgres:5432/app
     REDIS_URL: redis://redis:6379
     # Test only: EXTRACTOR=rules makes the worker use regex extraction instead
-    # of Claude (CI uses it). Empty by default, which means the real model.
+    # of Gemini (CI uses it). Empty by default, which means the real model.
     EXTRACTOR: ${EXTRACTOR:-}
 
 services:

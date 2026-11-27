@@ -22,7 +22,7 @@ docker compose up --build               # whole stack: web :3000, api :3001 (Swa
 - Integration tests use their own databases (`app_test`, `app_test_api`, `app_test_worker`), created and migrated by a vitest globalSetup from `@app/db/testing`.
 - Packages are consumed from `dist`, so build a package after changing it before its dependents see the change (turbo does this for `build` and `test`).
 - Schema change: edit `packages/db/prisma/schema.prisma`, then `pnpm --filter @app/db exec prisma migrate dev --name <name>` against the dev database. **Never edit a migration that any database may have applied**; add a new one.
-- `ANTHROPIC_API_KEY` goes in the root `.env` (gitignored), never in `.env.example`.
+- `GEMINI_API_KEY` goes in the root `.env` (gitignored), never in `.env.example`.
 
 ## Architecture
 

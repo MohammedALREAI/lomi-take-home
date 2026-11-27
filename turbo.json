@@ -5,9 +5,7 @@
     "REDIS_URL",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
-    "ANTHROPIC_API_KEY",
-    "LLM_MODEL",
-    "LLM_PROVIDER",
+    "GEMINI_FALLBACK_MODEL",
     "API_URL",
     "PORT"
   ],

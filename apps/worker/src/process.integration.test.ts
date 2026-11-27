@@ -64,13 +64,13 @@ describe("processVersion", () => {
 
   it("records a model error as a failed, retryable version", async () => {
     const { documentId, versionId } = await upload();
-    const broken = new FakeExtractor(() => new Error("Anthropic API error 529: Overloaded"));
+    const broken = new FakeExtractor(() => new Error("Gemini API error 503: high demand"));
     expect(await processVersion({ db, extractor: broken }, versionId)).toBe("failed");
 
     let version = await db.documentVersion.findUniqueOrThrow({ where: { id: versionId } });
     expect(version).toMatchObject({ status: "failed", leaseToken: null });
-    expect(version.failureReason).toMatch(/Overloaded/);
-    expect((await db.extractionRun.findFirstOrThrow({ where: { versionId } })).error).toMatch(/Overloaded/);
+    expect(version.failureReason).toMatch(/high demand/);
+    expect((await db.extractionRun.findFirstOrThrow({ where: { versionId } })).error).toMatch(/high demand/);
 
     await retryLatest(db, documentId);
     expect(await processVersion({ db, extractor: new FakeExtractor(invoiceAnswer) }, versionId)).toBe("extracted");
@@ -83,7 +83,7 @@ describe("processVersion", () => {
     const { versionId } = await upload();
     expect(await processVersion({ db, extractor: null }, versionId)).toBe("failed");
     const version = await db.documentVersion.findUniqueOrThrow({ where: { id: versionId } });
-    expect(version.failureReason).toMatch(/ANTHROPIC_API_KEY/);
+    expect(version.failureReason).toMatch(/GEMINI_API_KEY/);
   });
 
   it("fails a PDF it cannot read", async () => {
