@@ -1,12 +1,14 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
+import { Icon, fieldIconName } from "./Icon";
 import { ValueStateBadge, valueTone } from "./StatusBadge";
 import type { ValueView } from "./api";
 
 type ReviewBody = { action: "approve" } | { action: "correct"; correctedValue: string; note?: string };
 
-const label = (field: string) => field.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+export const formatFieldLabel = (field: string) =>
+  field.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 /** "Was X, approved." / "Was X, corrected from Y." / "Was a gap, filled in as X." */
 function previousText(baseline: NonNullable<ValueView["baseline"]>) {
@@ -28,12 +30,14 @@ export function ValueCard({
   value,
   reviewable,
   selected,
+  openCorrectSignal = 0,
   onSelect,
   onReview,
 }: {
   value: ValueView;
   reviewable: boolean;
   selected: boolean;
+  openCorrectSignal?: number;
   onSelect: () => void;
   onReview: (body: ReviewBody) => Promise<void>;
 }) {
@@ -43,6 +47,13 @@ export function ValueCard({
   const tone = valueTone(value);
   const baseline = value.baseline;
   const changed = baseline !== null && value.state === "pending";
+  const iconName = fieldIconName(value.field, value.type);
+
+  useEffect(() => {
+    if (openCorrectSignal > 0 && reviewable) {
+      setCorrecting(true);
+    }
+  }, [openCorrectSignal, reviewable]);
 
   async function send(body: ReviewBody) {
     setBusy(true);
@@ -66,57 +77,93 @@ export function ValueCard({
 
   return (
     <article className={`card card-${tone}${selected ? " card-selected" : ""}`}>
-      <div className="card-head">
-        <h3>{label(value.field)}</h3>
+      <div className="card-top">
+        <div className="card-field-group">
+          <span className="field-icon-box">
+            <Icon name={iconName} size={18} />
+          </span>
+          <div className="card-field-titles">
+            <h3>{formatFieldLabel(value.field)}</h3>
+            {value.gap ? <div className="value value--gap">No value</div> : <div className="value">{value.value}</div>}
+          </div>
+        </div>
         <ValueStateBadge value={value} />
       </div>
 
-      {value.gap ? (
-        <div>
-          <div className="value">No value</div>
-          <div className="error">Gap: {value.gap.reason}</div>
+      {value.gap && (
+        <div className="gap-callout">
+          <Icon name="alert" size={15} />
+          <span>Gap: {value.gap.reason}</span>
         </div>
-      ) : (
-        <div className="value">{value.value}</div>
       )}
 
       {value.review?.action === "correct" && (
-        <div>
-          Corrected to <strong>{value.review.correctedValue}</strong>
-          {value.review.note && <span className="muted"> · {value.review.note}</span>}
+        <div className="correction-note">
+          <Icon name="check" size={14} />
+          <span>
+            Corrected to <strong>{value.review.correctedValue}</strong>
+            {value.review.note && <span className="muted"> · {value.review.note}</span>}
+          </span>
         </div>
       )}
       {value.review?.action === "approve" && value.review.note && <div className="muted">Note: {value.review.note}</div>}
 
       {value.evidence && (
         <blockquote className="quote" title="Quoted verbatim from the document">
-          {value.evidence}
+          <Icon name="quote" size={15} className="quote-icon" />
+          <span>{value.evidence}</span>
         </blockquote>
       )}
 
       {changed && (
         <section className="previous" aria-label={`Previous value in version ${baseline.versionNumber}`}>
-          <strong>Changed since v{baseline.versionNumber}.</strong> {previousText(baseline)}
-          {baseline.evidence && <blockquote className="quote">{baseline.evidence}</blockquote>}
+          <div className="previous-head">
+            <Icon name="clock" size={15} />
+            <span>
+              <strong>Changed since v{baseline.versionNumber}.</strong> {previousText(baseline)}
+            </span>
+          </div>
+          <div className="diff-pills">
+            <span className="diff-old">{baseline.effectiveValue ?? baseline.value ?? "Gap"}</span>
+            <span aria-hidden="true">→</span>
+            <span className="diff-new">{value.value ?? "Gap"}</span>
+          </div>
+          {baseline.evidence && (
+            <blockquote className="quote">
+              <Icon name="quote" size={14} className="quote-icon" />
+              <span>{baseline.evidence}</span>
+            </blockquote>
+          )}
         </section>
       )}
       {value.state === "carried_over" && baseline && (
-        <div className="muted">Evidence unchanged since v{baseline.versionNumber}; review carried over.</div>
+        <div className="carried-note">
+          <Icon name="carryOver" size={14} />
+          <span>Evidence unchanged since v{baseline.versionNumber}; review carried over.</span>
+        </div>
       )}
 
       <div className="actions">
         {value.evidence && (
-          <button type="button" onClick={onSelect} aria-pressed={selected}>
-            Show in document
+          <button type="button" className="btn-sm" onClick={onSelect} aria-pressed={selected}>
+            <Icon name="eye" size={14} />
+            <span>Show in document</span>
           </button>
         )}
         {reviewable && !correcting && (
           <>
-            <button type="button" className="primary" disabled={busy} onClick={() => void send({ action: "approve" })}>
-              {value.gap ? "Confirm missing" : "Approve"}
+            <button
+              type="button"
+              className="primary btn-sm"
+              disabled={busy}
+              onClick={() => void send({ action: "approve" })}
+            >
+              <Icon name="check" size={14} />
+              <span>{value.gap ? "Confirm missing" : "Approve"}</span>
             </button>
-            <button type="button" disabled={busy} onClick={() => setCorrecting(true)}>
-              Correct
+            <button type="button" className="btn-sm" disabled={busy} onClick={() => setCorrecting(true)}>
+              <Icon name="close" size={13} />
+              <span>Correct</span>
             </button>
           </>
         )}
@@ -130,13 +177,14 @@ export function ValueCard({
           </label>
           <label className="field">
             Note (optional)
-            <input name="note" />
+            <input name="note" placeholder="Reason for correction" />
           </label>
           <div className="actions">
-            <button type="submit" className="primary" disabled={busy}>
-              Save correction
+            <button type="submit" className="primary btn-sm" disabled={busy}>
+              <Icon name="check" size={14} />
+              <span>Save correction</span>
             </button>
-            <button type="button" disabled={busy} onClick={() => setCorrecting(false)}>
+            <button type="button" className="btn-sm" disabled={busy} onClick={() => setCorrecting(false)}>
               Cancel
             </button>
           </div>

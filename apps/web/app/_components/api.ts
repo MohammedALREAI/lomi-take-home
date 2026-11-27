@@ -10,7 +10,9 @@ type Json<T> = T extends Date
       : T;
 
 export type DocumentDetail = Json<Awaited<ReturnType<typeof getDocument>>>;
-export type DocumentSummary = Json<Awaited<ReturnType<typeof listDocuments>>[number]>;
+export type DocumentSummary = Json<
+  Awaited<ReturnType<typeof listDocuments>>[number]
+>;
 export type Progress = Json<Awaited<ReturnType<typeof getProgress>>>;
 export type ValueView = DocumentDetail["values"][number];
 export type VersionStatus = DocumentDetail["currentVersion"]["status"];
@@ -31,8 +33,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   } catch {
     throw new ApiError(0, "Could not reach the server.");
   }
-  const body = (await res.json().catch(() => null)) as { message?: string } | null;
-  if (!res.ok) throw new ApiError(res.status, body?.message ?? `Request failed (${res.status}).`);
+  const body = (await res.json().catch(() => null)) as {
+    message?: string;
+  } | null;
+  if (!res.ok)
+    throw new ApiError(
+      res.status,
+      body?.message ?? `Request failed (${res.status}).`,
+    );
   return body as T;
 }
 
@@ -45,21 +53,37 @@ const json = (body: unknown): RequestInit => ({
 export const api = {
   listDocuments: () => request<DocumentSummary[]>("/documents"),
   getDocument: (id: string, version?: number) =>
-    request<DocumentDetail>(`/documents/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`),
+    request<DocumentDetail>(
+      `/documents/${encodeURIComponent(id)}${version ? `?version=${version}` : ""}`,
+    ),
   uploadDocument: (form: FormData) =>
-    request<{ documentId: string; number: number }>("/documents", { method: "POST", body: form }),
-  uploadVersion: (id: string, form: FormData) =>
-    request<{ documentId: string; number: number }>(`/documents/${encodeURIComponent(id)}/versions`, {
+    request<{ documentId: string; number: number }>("/documents", {
       method: "POST",
       body: form,
     }),
+  uploadVersion: (id: string, form: FormData) =>
+    request<{ documentId: string; number: number }>(
+      `/documents/${encodeURIComponent(id)}/versions`,
+      {
+        method: "POST",
+        body: form,
+      },
+    ),
   retry: (id: string) =>
-    request<{ requeued: boolean }>(`/documents/${encodeURIComponent(id)}/retry`, { method: "POST" }),
-  review: (valueId: string, body: { action: "approve" } | { action: "correct"; correctedValue: string; note?: string }) =>
-    request<unknown>(`/values/${valueId}/review`, json(body)),
+    request<{ requeued: boolean }>(
+      `/documents/${encodeURIComponent(id)}/retry`,
+      { method: "POST" },
+    ),
+  review: (
+    valueId: string,
+    body:
+      | { action: "approve" }
+      | { action: "correct"; correctedValue: string; note?: string },
+  ) => request<unknown>(`/values/${valueId}/review`, json(body)),
 };
 
-export const isInProgress = (status: VersionStatus) => status === "queued" || status === "extracting";
+export const isInProgress = (status: VersionStatus) =>
+  status === "queued" || status === "extracting";
 
-/** How often to poll: every 2s while extraction is running, otherwise not at all. */
-export const POLL_MS = 2_000;
+/** How often to poll: every 800ms while extraction is running, otherwise not at all. */
+export const POLL_MS = 800;
