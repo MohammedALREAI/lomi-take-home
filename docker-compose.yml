@@ -4,7 +4,7 @@ x-app: &app
   image: take-home-app
   pull_policy: never
   env_file:
-    # Optional: put ANTHROPIC_API_KEY (and LLM_MODEL) here.
+    # Optional: put GEMINI_API_KEY or ANTHROPIC_API_KEY (and model overrides) here.
     - path: .env
       required: false
   environment:

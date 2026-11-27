@@ -25,11 +25,11 @@ export class AnthropicExtractor implements Extractor {
       message = await this.client.messages.create(
         {
           model: this.model,
-          max_tokens: 16_000,
+          max_tokens: 2_048,
           system: SYSTEM_PROMPT,
           messages: [{ role: "user", content: userPrompt(type, text) }],
           output_config: {
-            effort: "medium",
+            effort: "low",
             format: { type: "json_schema", schema: llmOutputJsonSchema(type) },
           },
         },

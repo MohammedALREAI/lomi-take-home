@@ -7,28 +7,16 @@ import {
   type ExtractionJob,
 } from "@app/queue";
 import { Worker } from "bullmq";
-import { AnthropicExtractor } from "./anthropic-extractor.js";
-import type { Extractor } from "./extractor.js";
+import { chooseExtractor } from "./choose-extractor.js";
+import { warmupPdfParser } from "./parse.js";
 import { processVersion } from "./process.js";
-import { RulesExtractor } from "./rules-extractor.js";
 
 const RECONCILE_EVERY_MS = 10_000;
+const WORKER_CONCURRENCY = Math.max(1, Number(process.env.WORKER_CONCURRENCY) || 5);
 
 const db = createPrismaClient();
-
-function chooseExtractor(): Extractor | null {
-  if (process.env.EXTRACTOR === "rules") {
-    console.warn("[worker] EXTRACTOR=rules: TEST-ONLY regex extraction, no model is called.");
-    return new RulesExtractor();
-  }
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    console.warn("[worker] ANTHROPIC_API_KEY is not set; extractions will fail until it is.");
-    return null;
-  }
-  return new AnthropicExtractor(apiKey, process.env.LLM_MODEL?.trim() || "claude-opus-5-5");
-}
 const extractor = chooseExtractor();
+void warmupPdfParser();
 
 const queue = createExtractionQueue();
 
@@ -57,7 +45,7 @@ const worker = new Worker<ExtractionJob>(
     // A finished version may unblock the next version of the same document.
     if (outcome !== "skipped") void reconcileOnce();
   },
-  { connection: createRedis({ maxRetriesPerRequest: null }), concurrency: 2 },
+  { connection: createRedis({ maxRetriesPerRequest: null }), concurrency: WORKER_CONCURRENCY },
 );
 worker.on("error", (err) => console.warn(`[worker] redis: ${err.message}`));
 worker.on("failed", (job, err) => console.warn(`[worker] job ${job?.id} crashed: ${err.message}`));

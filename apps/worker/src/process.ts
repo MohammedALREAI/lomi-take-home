@@ -25,7 +25,8 @@ export interface WorkerDeps {
 
 export type Outcome = "extracted" | "failed" | "lost_lease" | "skipped";
 
-const errorMessage = (err: unknown) => (err instanceof Error ? err.message : String(err));
+const errorMessage = (err: unknown) =>
+  err instanceof Error ? err.message : String(err);
 
 /**
  * Extracts one version end to end. Never throws for an expected failure: a
@@ -33,7 +34,10 @@ const errorMessage = (err: unknown) => (err instanceof Error ? err.message : Str
  * `failed` with a reason. If the lease is lost (this worker was presumed dead
  * and another took over), it stops without writing anything.
  */
-export async function processVersion(deps: WorkerDeps, versionId: string): Promise<Outcome> {
+export async function processVersion(
+  deps: WorkerDeps,
+  versionId: string,
+): Promise<Outcome> {
   const { db, heartbeatMs = 10_000, deadlineMs = 180_000 } = deps;
   const lease = await claimVersion(db, versionId);
   if (!lease) return "skipped";
@@ -48,11 +52,19 @@ export async function processVersion(deps: WorkerDeps, versionId: string): Promi
           controller.abort(new Error("The lease was lost."));
         }
       },
-      (err) => console.warn(`[worker] heartbeat failed for ${versionId}: ${errorMessage(err)}`),
+      (err) =>
+        console.warn(
+          `[worker] heartbeat failed for ${versionId}: ${errorMessage(err)}`,
+        ),
     );
   }, heartbeatMs);
   const deadline = setTimeout(
-    () => controller.abort(new Error(`Extraction timed out after ${Math.round(deadlineMs / 1000)} seconds.`)),
+    () =>
+      controller.abort(
+        new Error(
+          `Extraction timed out after ${Math.round(deadlineMs / 1000)} seconds.`,
+        ),
+      ),
     deadlineMs,
   );
 
@@ -87,20 +99,31 @@ async function extractLeased(
     }
     if (!(await saveParsedText(db, lease, text))) return "lost_lease";
   }
-  if (text.trim() === "") return fail("The PDF contains no extractable text (it may be a scanned image).");
+  if (text.trim() === "")
+    return fail(
+      "The PDF contains no extractable text (it may be a scanned image).",
+    );
 
   if (!extractor) {
-    return fail("No extraction model is configured: ANTHROPIC_API_KEY is not set. Set it in .env, restart, then retry.");
+    return fail(
+      "No extraction model is configured: neither GEMINI_API_KEY nor ANTHROPIC_API_KEY is set. Set one in .env, restart, then retry.",
+    );
   }
 
-  const runId = await startRun(db, lease, extractor.model, extractor.prompt(version.type, text));
+  const runId = await startRun(
+    db,
+    lease,
+    extractor.model,
+    extractor.prompt(version.type, text),
+  );
   let result: ExtractionResult;
   try {
     result = await extractor.extract({ type: version.type, text, signal });
   } catch (err) {
     result = { ok: false, error: errorMessage(err), rawResponse: null };
   }
-  if (signal.aborted && !result.ok) result = { ...result, error: errorMessage(signal.reason) };
+  if (signal.aborted && !result.ok)
+    result = { ...result, error: errorMessage(signal.reason) };
   await finishRun(db, runId, {
     rawResponse: result.rawResponse,
     error: result.ok ? null : result.error,
@@ -111,5 +134,7 @@ async function extractLeased(
   if (!result.ok) return fail(`Extraction failed: ${result.error}`);
 
   const values = validateExtraction(version.type, text, result.output);
-  return (await commitExtraction(db, lease, values)) === "committed" ? "extracted" : "lost_lease";
+  return (await commitExtraction(db, lease, values)) === "committed"
+    ? "extracted"
+    : "lost_lease";
 }
