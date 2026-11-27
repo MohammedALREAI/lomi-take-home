@@ -81,6 +81,36 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 
 **Postgres is the system of record; Redis only carries "please extract version X".** Everything a user can see, and every state transition, is in Postgres. Losing Redis loses nothing but a few seconds.
 
+```mermaid
+flowchart LR
+    UI[Review UI] -->|POST /documents| API
+    API -->|store PDF, version = queued| PG[(Postgres)]
+    API -.->|then enqueue v-id, best effort| R[(Redis / BullMQ)]
+    API -->|202 at once| UI
+    R -.->|job| W[Worker]
+    W -->|claim: lease + heartbeat| PG
+    W -->|parse PDF, store text| PG
+    W -->|structured output| G[Gemini<br/>retries, fallback model]
+    G --> W
+    W -->|verify evidence, commit values + carry-over| PG
+    W -.->|reconciler every 10s:<br/>requeue expired leases,<br/>re-enqueue queued versions| PG
+    UI -->|poll while queued / extracting| API
+```
+
+A version's status:
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: upload or new version
+    queued --> extracting: worker claims it<br/>(no earlier version of the document still running)
+    extracting --> extracted: values committed with carry-over
+    extracting --> failed: parse, model or validation error,<br/>overload after retries and fallback, timeout
+    extracting --> queued: lease expired<br/>(worker killed, restart, FLUSHALL)
+    extracting --> failed: lease expired a 3rd time
+    failed --> queued: Retry
+    extracted --> [*]
+```
+
 1. **Upload.** One transaction stores the document and version as `queued`, then the API responds `202`. Enqueueing happens after, fire-and-forget, with Redis' offline queue disabled, so a Redis outage cannot slow an upload down.
 2. **Claim.** A worker takes a version with one atomic `UPDATE … WHERE status = 'queued'` that sets `extracting`, a random lease token and `leaseExpiresAt = now() + 30s` (database clock). The same statement refuses a version while an earlier version of the same document is still queued or extracting.
 3. **Work under a lease.** The worker heartbeats every 10s. Every write it makes (parsed text, failure, commit) is conditioned on its lease token, so a worker that was presumed dead and comes back cannot overwrite anything. A heartbeat that finds the lease gone aborts the in-flight model call.
@@ -94,7 +124,7 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 | Worker killed or `docker compose restart` mid-extraction | The lease expires after 30s; the version is requeued and extracted again. Parsed text is reused. |
 | A worker keeps dying on one version | After 3 attempts it is `failed` with "The worker stopped responding 3 times…", and **Retry** requeues it. |
 | The model is overloaded (429/503), unreachable, or hangs without answering | Retries with exponential backoff and jitter, honouring `Retry-After`, each call capped at 45s, all within a 150s budget; then the fallback model, if configured. If that is not enough, the version is `failed` with "temporarily overloaded … press Retry". |
-| PDF unreadable, no text, model error, refusal, `max_tokens`, invalid JSON, timeout (3 min per attempt) | The version is `failed` with the reason; the run keeps the prompt and raw response. **Retry** requeues it. Permanent errors such as an invalid key are not retried. |
+| PDF unreadable, no text, model error, safety block, answer cut off (`MAX_TOKENS`), invalid JSON, timeout (3 min per attempt) | The version is `failed` with the reason; the run keeps the prompt and raw response. **Retry** requeues it. Permanent errors such as an invalid key are not retried. |
 | Postgres down | Nothing can be accepted or committed; API calls fail, workers' leases expire, and everything resumes from Postgres' state when it is back. |
 
 ## Extraction and the hallucination defense
@@ -111,6 +141,24 @@ For each field, the new version is compared with the same field in the latest ea
 2. **The new value equals the old value, or the reviewer's correction**, compared in canonical form (`$5,230.29` = `5230.29`, `March 1, 2025` = `2025-03-01`, strings case-insensitively). This catches a passage that survived while the document now states a different value elsewhere.
 
 Otherwise the value is `pending` and shows the previous value and review. A reviewed gap carries over only if the whole text is unchanged.
+
+A value's review state, derived from its latest review:
+
+```mermaid
+stateDiagram-v2
+    [*] --> pending: extracted (a value, or a gap with its reason)
+    pending --> approved: Approve (for a gap, confirm missing)
+    pending --> corrected: Correct, with a value and an optional note
+    approved --> corrected: corrected later
+    corrected --> approved: approved later
+    state "Next version is extracted" as next {
+        state "pending (changed)" as pending_again
+        [*] --> carried_over: old evidence still verbatim<br/>and same canonical value
+        [*] --> pending_again: evidence or value changed<br/>(shows the previous value and review)
+    }
+    approved --> next
+    corrected --> next
+```
 
 On the fixture invoice, v2 changes the title, payment terms, a line item, subtotal, tax and adds a paragraph that repeats the issue date. With this rule exactly `due_date` and `total_amount` return to review. The unit tests check this on the fixture text.
 
