@@ -149,7 +149,7 @@ Riskiest first, about 9.5 hours in total.
 - [x] Move the brief to `docs/ASSIGNMENT.md`.
 - [x] Write this plan.
 - [x] Docker Desktop installed and running.
-- [x] `GEMINI_API_KEY` in the root `.env` (gitignored). Anthropic was tried first and dropped: no credit on the account.
+- [x] `GEMINI_API_KEY` in the root `.env` (gitignored).
 
 ### 1. Spike (45 min)
 
