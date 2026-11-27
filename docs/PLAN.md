@@ -18,14 +18,14 @@ Living record of decisions and open work. The brief is in [ASSIGNMENT.md](ASSIGN
 | Next.js / React  | 16.4 / 19                                            |                                             |
 | Prisma           | 7.10 + `@prisma/adapter-pg`                          | 8 is still a release candidate              |
 | BullMQ           | 5.81                                                 | Maintained line with a known API            |
-| Others           | zod 4, `@anthropic-ai/sdk`, unpdf, Vitest, ESLint 10 |                                             |
+| Others           | zod 4, Gemini REST API (`fetch`), unpdf, Vitest, ESLint 10 |                                             |
 
 ### Monorepo layout
 
 | Package         | Responsibility                                                                                                                                                                                     |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/api`      | NestJS, thin HTTP layer: controllers, zod validation, error mapping (400/404/409)                                                                                                                  |
-| `apps/worker`   | Plain Node: BullMQ consumer, lease heartbeat, reconciler, PDF parsing, extractors (Anthropic and a fake for tests)                                                                                 |
+| `apps/worker`   | Plain Node: BullMQ consumer, lease heartbeat, reconciler, PDF parsing, extractors (Gemini, plus a fake and a rule-based one for tests)                                                                                 |
 | `apps/web`      | Next.js review UI with TanStack Query                                                                                                                                                              |
 | `packages/core` | Pure logic, no IO: field definitions, text normalization, evidence matching, value canonicalization, carry-over rule, shared zod contracts                                                         |
 | `packages/db`   | Prisma schema, migrations, seed, and coordination functions (upload, claim, heartbeat, commit, fail, reconcile, review, progress, retry) that take a `PrismaClient` so they can be tested directly |
@@ -60,7 +60,7 @@ Postgres is the system of record. Redis only carries `{versionId}` jobs.
 - **Claim:** one atomic `UPDATE` sets `extracting` with a lease token and `leaseExpiresAt = now() + 30s` (database clock). It only succeeds if no earlier version of the same document is `queued` or `extracting`.
 - **Fencing:** every worker write (heartbeat, parsed text, fail, commit) is conditioned on `leaseToken` and `status = 'extracting'`. A heartbeat that matches no row aborts the in-flight LLM call.
 - **Commit:** one transaction locks the `Document`, checks the lease, inserts the values (the unique constraint blocks duplicates), applies carry-over and sets `extracted`.
-- **Failure is a state.** Parse, LLM, refusal, `max_tokens`, schema, timeout (90s SDK timeout, 3 min per attempt), empty text and a missing API key all end as `failed` with a reason.
+- **Failure is a state.** Parse, LLM, safety block, `MAX_TOKENS`, schema, timeout (45s per call, 150s retry budget, 3 min per attempt), empty text and a missing API key all end as `failed` with a reason.
 - **Reconciler:** runs on startup and every 10s (`setInterval`, not a Redis repeatable job). Expired leases go back to `queued`, or to `failed` after 3 attempts. Every eligible `queued` version is re-enqueued. This covers container kills and `FLUSHALL`.
 - **Retry:** moves the latest version from `failed` to `queued` and resets `attempts`. On a version that is not failed it returns 200 with the current state.
 - **BullMQ settings:** `jobId = v-<versionId>`, `attempts: 1`, `removeOnComplete`, `removeOnFail`, `maxRetriesPerRequest: null`, an `error` listener on every Queue and Worker.
@@ -76,8 +76,8 @@ Postgres is the system of record. Redis only carries `{versionId}` jobs.
 ### Extraction and evidence
 
 - **Parsing:** unpdf `extractText({ mergePages: true })`, normalized once (NFC, `\r\n` to `\n`, strip `\0`) and stored as `parsedText` before the LLM call. All offsets index into it.
-- **LLM call:** `client.messages.create` with `claude-opus-5-5` (override with `LLM_MODEL`), `max_tokens: 16000`, structured output and `effort: "medium"`. The raw response is stored before it is validated with zod. Document text is delimited and treated as data, not instructions.
-- **Refusal fallback:** the server-side fallback is enabled if the spike shows it works with structured output; otherwise a refusal is `failed`.
+- **LLM call:** Gemini `generateContent` with `gemini-3.8-flash` (override with `GEMINI_MODEL`), `temperature: 0`, structured output (`responseSchema`). The raw response is stored before it is validated with zod. Document text is delimited and treated as data, not instructions.
+- **Overload handling:** 429/5xx, network errors and hung calls retry with exponential backoff and jitter (honouring `Retry-After`) within a 150s budget; then `GEMINI_FALLBACK_MODEL` (e.g. `gemini-3.1-flash-lite`). Safety blocks and permanent errors are `failed` without retrying.
 - **Output per field:** `{value, evidence, missing_reason}`. Dates are ISO, money and percentages plain numbers, strings as printed. Evidence must be the shortest passage containing the label and the value and no other field.
 - **Validation:** evidence must occur verbatim in `parsedText`, tolerating runs of whitespace and respecting token boundaries (`Net 30` does not match `Net 300`, `INV-2025-0847` does not match `INV-2025-0847-A`). The matched slice and its offsets are stored. No match means a gap with a reason.
 - **Canonicalization per type:** money, date, percent, number, string. Strings use NFC, trim, collapsed whitespace and case-folding.
@@ -132,7 +132,7 @@ need docu api use swigger
   | `worker`      |                                                                                   |
   | `web`         | Port 3000                                                                         |
 
-  `api`, `worker` and `web` wait for `migrate` to complete and use `restart: unless-stopped`. An optional root `.env` provides `ANTHROPIC_API_KEY`.
+  `api`, `worker` and `web` wait for `migrate` to complete and use `restart: unless-stopped`. An optional root `.env` provides `GEMINI_API_KEY`, `GEMINI_MODEL` and `GEMINI_FALLBACK_MODEL`.
 
 - **Seed:** idempotent (`ON CONFLICT DO NOTHING`, never touches `status`). Seeds version 1 of each manifest document as `queued`; the reconciler picks them up, so seeding needs no Redis.
 
@@ -149,14 +149,15 @@ Riskiest first, about 9.5 hours in total.
 - [x] Move the brief to `docs/ASSIGNMENT.md`.
 - [x] Write this plan.
 - [x] Docker Desktop installed and running.
-- [ ] `ANTHROPIC_API_KEY` in the root `.env` (gitignored).
+- [x] `GEMINI_API_KEY` in the root `.env` (gitignored). Anthropic was tried first and dropped: no credit on the account.
 
 ### 1. Spike (45 min)
 
 - [x] Run unpdf on all four fixtures; check that `Due Date: 2025-10-14` is on its own line.
-- [ ] One real structured-output call to `claude-opus-5-5`.
+- [x] Real structured-output calls to Gemini: `gemini-3.8-flash` was overloaded (503, or hung), `gemini-3.1-flash-lite` answered in about a second.
 - [ ] Extract invoice v1 and v2 three to five times; inspect evidence length and value stability.
-- [ ] Decide whether the evidence-trimming rule and the refusal fallback are needed.
+- [x] Fallback model: needed, added (`GEMINI_FALLBACK_MODEL`).
+- [ ] Evidence-trimming rule: decide after running invoice v1 → v2 with the real model.
 
 ### 2. Scaffold (1.25 h)
 
@@ -187,7 +188,7 @@ Riskiest first, about 9.5 hours in total.
 - [x] BullMQ consumer, heartbeat, per-attempt deadline.
 - [x] Reconciler (startup, every 10s, and after each job).
 - [x] Fake extractor for tests.
-- [x] Anthropic extractor that stores the prompt and raw response before parsing. Not yet run against the real API: needs `ANTHROPIC_API_KEY`.
+- [x] Gemini extractor that stores the prompt and raw response before parsing, with overload-aware retries and a fallback model. Run against the real API: extractions succeed through the fallback while the primary model is overloaded.
 - [x] Parse test on the real fixtures: unpdf keeps each invoice header field on its own line, so no line reconstruction is needed.
 - [x] `packages/queue`: queue name and best-effort enqueue shared by api and worker.
 
