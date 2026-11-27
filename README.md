@@ -18,9 +18,19 @@ docker compose up
 | API docs (Swagger) | http://localhost:3001/docs |
 | Postgres / Redis from the host | `localhost:5433` / `localhost:6380` |
 
-`docker compose up` builds one image, runs the migrations, seeds version 1 of the three fixture documents, and starts the API, the worker and the UI. The seeded documents are extracted within a few seconds of the worker starting.
+`docker compose up` builds one image, runs the migrations, seeds version 1 of the three fixture documents, and starts the API, the worker and the UI. The worker picks the seeded documents up as soon as it starts; each extraction takes seconds when the model is available.
 
-Without an API key everything still starts; extractions end as `failed` with a clear missing-key message. Add `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) to `.env`, restart the worker (`docker compose restart worker`) and press **Retry**.
+Without an API key everything still starts; extractions end as `failed` with a clear missing-key message. Add a key to `.env`, restart the worker (`docker compose restart worker`) and press **Retry**.
+
+**Choosing the model** (in `.env`; see [.env.example](.env.example)):
+
+| Variable | Meaning |
+|---|---|
+| `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` | Set one. If both are set, Gemini is used unless `LLM_PROVIDER=anthropic`. |
+| `LLM_PROVIDER` | Optional: `gemini` or `anthropic`, to choose explicitly. |
+| `GEMINI_MODEL` | Gemini model, default `gemini-3.8-flash`. |
+| `GEMINI_FALLBACK_MODEL` | Optional: tried when the Gemini model stays overloaded, e.g. `gemini-3.1-flash-lite`. |
+| `LLM_MODEL` | Claude model, default `claude-opus-5-5`. |
 
 **What to click first**
 
@@ -33,8 +43,9 @@ Without an API key everything still starts; extractions end as `failed` with a c
 
 ```
 apps/
-  api/      NestJS HTTP layer: controllers, validation, error mapping, Swagger
-  worker/   Plain Node: BullMQ consumer, lease heartbeat, reconciler, PDF parsing, Claude
+  api/      NestJS HTTP layer: controllers, validation, error mapping, Swagger, PDF download
+  worker/   Plain Node: BullMQ consumer, lease heartbeat, reconciler, PDF parsing,
+            extractors (Gemini, Claude, and a test-only rule extractor)
   web/      Next.js review UI
 packages/
   core/     Pure logic, no IO: field definitions, evidence matching, value
@@ -65,7 +76,7 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 - **`ExtractedValue`** is one field of one version: the model's value (`null` for a gap), the verbatim evidence and its offsets, the gap reason, and a link to the same field in the previous version. `unique(versionId, field)` makes duplicate values impossible at the database level.
 - **`Review`** is append-only. A value's state is derived from its latest review: none → `pending`, carried from an earlier review → `carried_over`, otherwise `approved` or `corrected`. There is no status column to keep in sync, and the history of every decision is kept.
 - **Corrections are annotations.** The model's value is never overwritten; a `correct` review stores the reviewer's value beside it, and the API returns both `value` and `effectiveValue`. This keeps what the model said auditable and lets carry-over compare like with like.
-- **`ExtractionRun`** stores the prompt, the raw response, any error and the token usage of every attempt.
+- **`ExtractionRun`** stores the prompt, the raw response, any error and the token usage of every attempt, including which model answered when the fallback was used. The review page shows the latest run's model, tokens and duration.
 - Nothing is deleted. Older versions, their values and their reviews stay readable (`GET /documents/:id?version=1`); only the latest extracted version accepts reviews.
 
 ## How extraction is coordinated
@@ -84,13 +95,14 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 | `FLUSHALL` | Queued versions are re-enqueued within 10s; a version mid-extraction finishes, or its lease expires and it is retried. Values, reviews and failures are in Postgres. |
 | Worker killed or `docker compose restart` mid-extraction | The lease expires after 30s; the version is requeued and extracted again. Parsed text is reused. |
 | A worker keeps dying on one version | After 3 attempts it is `failed` with "The worker stopped responding 3 times…", and **Retry** requeues it. |
-| PDF unreadable, no text, model error, refusal, `max_tokens`, invalid JSON, timeout (90s per request, 3 min per attempt) | The version is `failed` with the reason; the run keeps the prompt and raw response. **Retry** requeues it. |
+| The model is overloaded (429/503), unreachable, or hangs without answering | Retries with exponential backoff and jitter, honouring `Retry-After`, each call capped at 45s, all within a 150s budget; then the fallback model, if configured. If that is not enough, the version is `failed` with "temporarily overloaded … press Retry". |
+| PDF unreadable, no text, model error, refusal, `max_tokens`, invalid JSON, timeout (3 min per attempt) | The version is `failed` with the reason; the run keeps the prompt and raw response. **Retry** requeues it. Permanent errors such as an invalid key are not retried. |
 | Postgres down | Nothing can be accepted or committed; API calls fail, workers' leases expire, and everything resumes from Postgres' state when it is back. |
 
 ## Extraction and the hallucination defense
 
 - The worker parses the PDF with `unpdf` and normalizes the text once (NFC, line endings, NUL bytes).
-- It calls **Gemini** (`gemini-3-flash-preview` by default when `GEMINI_API_KEY` is set, with automatic overload failover and `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` overrides) or **Claude** (`claude-opus-5-5` by default when `ANTHROPIC_API_KEY` is set, `LLM_MODEL` to change) with structured output: one `{value, evidence, missing_reason}` per expected field. The prompt asks for a concise verbatim passage containing the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
+- It calls **Gemini** or **Claude** (see *Choosing the model*) with structured output: one `{value, evidence, missing_reason}` per expected field. Both sit behind one `Extractor` interface, so the rest of the pipeline does not know which model answered. The prompt asks for a short verbatim passage containing the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
 - **Every value must prove itself.** Its evidence has to occur verbatim in this version's parsed text, tolerating differences in whitespace only (PDF tables have runs of spaces, prose wraps mid-phrase) and respecting token boundaries (`Net 30` does not match inside `Net 300`). The value must also read as the field's type. Anything else is stored as a **gap** with a reason, for example *The quoted evidence does not appear in the document: "…"*. A gap is shown to the reviewer, never hidden.
 
 ## What "unchanged" means: review carry-over
@@ -117,6 +129,7 @@ On the fixture invoice, v2 changes the title, payment terms, a line item, subtot
 | Polling, streaming or manual refresh | Poll every 800ms, only while a version is queued or extracting | Extraction takes a few seconds and there is one reviewer per document. Adaptive polling needs no extra infrastructure, feels instant, and stops completely when nothing is running. |
 | Gaps | Reviewable: confirm missing, or correct with a value | A reviewer should be able to close every field. |
 | Re-uploading an identical PDF | Creates a new version | Explicit is simpler; everything carries over. |
+| Which LLM | Gemini or Claude behind one interface, chosen in `.env`, with a fallback model for overloads | The brief allows any provider with structured output. A second provider and a fallback keep extraction working when one model is overloaded or out of credit, which happened while building this. The choice is operational, so it lives in configuration, not in the UI. |
 
 ## Development
 
@@ -137,7 +150,7 @@ pnpm test:e2e                            # Playwright, full stack; first: pnpm -
 
 - One package: `pnpm --filter @app/core test`. One test: `pnpm --filter @app/core exec vitest run -t "token boundaries"`.
 - Integration and e2e tests create their own databases (`app_test`, `app_test_api`, `app_test_worker`, `app_e2e`) and never touch development data.
-- `EXTRACTOR=rules` makes the worker extract the fixture fields with regular expressions instead of calling Claude. It exists only so e2e tests and CI can run the whole pipeline without an API key; its quotes go through the same verbatim check.
+- `EXTRACTOR=rules` makes the worker extract the fixture fields with regular expressions instead of calling a model. It exists only so e2e tests and CI can run the whole pipeline without an API key; its quotes go through the same verbatim check.
 
 **CI** ([.github/workflows/ci.yml](.github/workflows/ci.yml)) runs two jobs on every push: build, lint, unit, integration and e2e tests against Postgres and Redis service containers; and `docker compose up --build` followed by [scripts/smoke-test.sh](scripts/smoke-test.sh), which waits for the seeded documents to be extracted, runs `FLUSHALL` and a restart, checks nothing was lost, uploads invoice v2 and checks for duplicated values.
 
@@ -145,7 +158,7 @@ pnpm test:e2e                            # Playwright, full stack; first: pnpm -
 
 - **Evidence and carry-over** (`packages/core`): verbatim matching with whitespace and token boundaries, the lease's wrapped line, canonical values, hallucinated evidence becoming a gap, and the invoice v1 → v2 matrix sending back exactly the two changed fields.
 - **Coordination** (`packages/db`, real Postgres): a version committed twice, a stale worker fenced out of every write, recovery from an empty queue, a version failed after repeated worker loss and retried, a new version queued behind one still extracting, carry-over including a correction, and 409 on a stale review. Seeding is idempotent.
-- **Worker** (`apps/worker`, real PDFs and Postgres, fake model): parsing the fixtures, a model error, a missing key, an unreadable PDF, a hung call hitting the deadline, and a worker losing its lease mid-call.
+- **Worker** (`apps/worker`, real PDFs and Postgres, fake model): parsing the fixtures, a model error, a missing key, an unreadable PDF, a hung call hitting the deadline, and a worker losing its lease mid-call. The Gemini extractor is tested against a mocked HTTP API: retries through an overload spike, stopping when the time budget runs out, falling back on overload and on network errors, and never retrying a permanent error.
 - **API** (`apps/api`, the real Nest app on Postgres with no Redis): uploads answer at once with Redis down, validation, 404/409, retry, and the Swagger document.
 - **End to end** (`apps/e2e`, Playwright, the built apps): upload the invoice in the UI, correct one value and approve the rest, upload v2, and check that exactly the two changed fields come back with their previous values while the rest, the correction included, carry over; v1 stays read-only. Also: a missing field shows as a gap with its reason.
 
