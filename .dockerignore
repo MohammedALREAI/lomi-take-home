@@ -3,7 +3,13 @@
 **/.next
 **/.turbo
 **/src/generated
+**/*.tsbuildinfo
+**/playwright-report
+**/test-results
 .git
+.github
+docs
+*.md
 .env
 .env.*
 !.env.example

@@ -7,7 +7,7 @@ The brief is in [docs/ASSIGNMENT.md](docs/ASSIGNMENT.md); the working plan and i
 ## Run it
 
 ```sh
-cp .env.example .env        # then set ANTHROPIC_API_KEY in .env
+cp .env.example .env        # then set GEMINI_API_KEY (or ANTHROPIC_API_KEY) in .env
 docker compose up
 ```
 
@@ -20,7 +20,7 @@ docker compose up
 
 `docker compose up` builds one image, runs the migrations, seeds version 1 of the three fixture documents, and starts the API, the worker and the UI. The seeded documents are extracted within a few seconds of the worker starting.
 
-Without an API key everything still starts; extractions end as `failed` with the reason "ANTHROPIC_API_KEY is not set". Add the key, restart the worker (`docker compose restart worker`) and press **Retry**.
+Without an API key everything still starts; extractions end as `failed` with a clear missing-key message. Add `GEMINI_API_KEY` (or `ANTHROPIC_API_KEY`) to `.env`, restart the worker (`docker compose restart worker`) and press **Retry**.
 
 **What to click first**
 
@@ -90,7 +90,7 @@ Document 1─* DocumentVersion 1─* ExtractedValue 1─* Review
 ## Extraction and the hallucination defense
 
 - The worker parses the PDF with `unpdf` and normalizes the text once (NFC, line endings, NUL bytes).
-- It calls Claude (`claude-opus-5-5` by default, `LLM_MODEL` to change) with structured output: one `{value, evidence, missing_reason}` per expected field. The prompt asks for the shortest passage that contains the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
+- It calls **Gemini** (`gemini-3-flash-preview` by default when `GEMINI_API_KEY` is set, with automatic overload failover and `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL` overrides) or **Claude** (`claude-opus-5-5` by default when `ANTHROPIC_API_KEY` is set, `LLM_MODEL` to change) with structured output: one `{value, evidence, missing_reason}` per expected field. The prompt asks for a concise verbatim passage containing the field's label and value, values in a fixed format (ISO dates, plain numbers), and `null` with a reason when a field is not stated. The document is passed as data, not instructions.
 - **Every value must prove itself.** Its evidence has to occur verbatim in this version's parsed text, tolerating differences in whitespace only (PDF tables have runs of spaces, prose wraps mid-phrase) and respecting token boundaries (`Net 30` does not match inside `Net 300`). The value must also read as the field's type. Anything else is stored as a **gap** with a reason, for example *The quoted evidence does not appear in the document: "…"*. A gap is shown to the reviewer, never hidden.
 
 ## What "unchanged" means: review carry-over
@@ -114,7 +114,7 @@ On the fixture invoice, v2 changes the title, payment terms, a line item, subtot
 | A new version while the previous is extracting | Queued, processed in order per document | Carry-over needs the previous version's final reviews. The previous version stays reviewable until the new one commits; a review that races the commit is either seen by carry-over or rejected with 409. |
 | Store parsed text or re-parse | Store it per version, before calling the model | Evidence and offsets must refer to exactly the text the model saw, for that version, forever; retries reuse it. |
 | Definition of "unchanged" | Old evidence still verbatim in the new text, and same canonical value | See above. |
-| Polling, streaming or manual refresh | Poll every 2s, only while a version is queued or extracting | Extraction takes seconds and there is one reviewer per document. Polling needs no extra infrastructure and survives restarts; it stops when nothing is running. |
+| Polling, streaming or manual refresh | Poll every 800ms, only while a version is queued or extracting | Extraction takes a few seconds and there is one reviewer per document. Adaptive polling needs no extra infrastructure, feels instant, and stops completely when nothing is running. |
 | Gaps | Reviewable: confirm missing, or correct with a value | A reviewer should be able to close every field. |
 | Re-uploading an identical PDF | Creates a new version | Explicit is simpler; everything carries over. |
 
@@ -124,7 +124,7 @@ Two compose files: `docker-compose.yml` is the full stack as it ships; `docker-c
 
 ```sh
 pnpm install
-cp .env.example .env                     # set ANTHROPIC_API_KEY; local URLs are already there
+cp .env.example .env                     # set GEMINI_API_KEY (or ANTHROPIC_API_KEY); local URLs are already there
 pnpm dev:up                              # Postgres + Redis, migrations, seed
 pnpm dev                                 # api :3001, worker, web :3000 (next dev)
 
