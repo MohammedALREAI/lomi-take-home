@@ -34,13 +34,49 @@ function reviewView(review: ReviewRow | undefined | null) {
   };
 }
 
-function effectiveValue(value: string | null, review: ReviewRow | undefined | null) {
+function effectiveValue(
+  value: string | null,
+  review: ReviewRow | undefined | null,
+) {
   return review?.action === "correct" ? review.correctedValue : value;
+}
+
+function extractTotalTokens(usage: unknown): number | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as Record<string, unknown>;
+  if (typeof u.totalTokenCount === "number") return u.totalTokenCount;
+  if (
+    typeof u.promptTokenCount === "number" ||
+    typeof u.candidatesTokenCount === "number"
+  ) {
+    return (
+      (Number(u.promptTokenCount) || 0) + (Number(u.candidatesTokenCount) || 0)
+    );
+  }
+  if (
+    typeof u.input_tokens === "number" ||
+    typeof u.output_tokens === "number"
+  ) {
+    return (Number(u.input_tokens) || 0) + (Number(u.output_tokens) || 0);
+  }
+  return null;
+}
+
+function extractRunModel(defaultModel: string, usage: unknown): string {
+  if (usage && typeof usage === "object") {
+    const m = (usage as Record<string, unknown>).model;
+    if (typeof m === "string" && m.trim()) return m;
+  }
+  return defaultModel;
 }
 
 const latestReview = { orderBy: { seq: "desc" }, take: 1 } as const;
 
-export async function getDocument(db: Db, documentId: string, versionNumber?: number) {
+export async function getDocument(
+  db: Db,
+  documentId: string,
+  versionNumber?: number,
+) {
   const doc = await db.document.findUnique({
     where: { id: documentId },
     include: {
@@ -62,29 +98,53 @@ export async function getDocument(db: Db, documentId: string, versionNumber?: nu
   if (!doc) throw new NotFoundError(`Document ${documentId} not found`);
 
   const current = doc.versions.at(-1);
-  if (!current) throw new NotFoundError(`Document ${documentId} has no versions`);
-  const latestExtracted = doc.versions.filter((v) => v.status === "extracted").at(-1) ?? null;
+  if (!current)
+    throw new NotFoundError(`Document ${documentId} has no versions`);
+  const latestExtracted =
+    doc.versions.filter((v) => v.status === "extracted").at(-1) ?? null;
 
-  const shown = versionNumber === undefined ? current : doc.versions.find((v) => v.number === versionNumber);
-  if (!shown) throw new NotFoundError(`Document ${documentId} has no version ${versionNumber}`);
+  const shown =
+    versionNumber === undefined
+      ? current
+      : doc.versions.find((v) => v.number === versionNumber);
+  if (!shown)
+    throw new NotFoundError(
+      `Document ${documentId} has no version ${versionNumber}`,
+    );
 
   const detail = await db.documentVersion.findUniqueOrThrow({
     where: { id: shown.id },
     select: {
       parsedText: true,
+      runs: {
+        orderBy: { attempt: "desc" },
+        take: 1,
+        select: {
+          attempt: true,
+          model: true,
+          usage: true,
+          startedAt: true,
+          finishedAt: true,
+        },
+      },
       values: {
         orderBy: { createdAt: "asc" },
         include: {
           reviews: latestReview,
           baseline: {
-            include: { reviews: latestReview, version: { select: { number: true } } },
+            include: {
+              reviews: latestReview,
+              version: { select: { number: true } },
+            },
           },
         },
       },
     },
   });
 
-  const types = new Map<string, FieldType>(FIELD_DEFINITIONS[doc.type].map((f) => [f.field, f.type]));
+  const types = new Map<string, FieldType>(
+    FIELD_DEFINITIONS[doc.type].map((f) => [f.field, f.type]),
+  );
   const order = FIELD_DEFINITIONS[doc.type].map((f) => f.field as string);
   const values = detail.values
     .map((v) => {
@@ -98,7 +158,10 @@ export async function getDocument(db: Db, documentId: string, versionNumber?: nu
         evidence: v.evidence,
         evidenceStart: v.evidenceStart,
         evidenceEnd: v.evidenceEnd,
-        gap: v.value === null ? { reason: v.gapReason ?? "No value was extracted." } : null,
+        gap:
+          v.value === null
+            ? { reason: v.gapReason ?? "No value was extracted." }
+            : null,
         state: stateOf(review),
         review: reviewView(review),
         effectiveValue: effectiveValue(v.value, review),
@@ -128,6 +191,21 @@ export async function getDocument(db: Db, documentId: string, versionNumber?: nu
     extractedAt: v.extractedAt,
   });
 
+  const latestRun = detail.runs[0];
+  const runView = latestRun
+    ? {
+        attempt: latestRun.attempt,
+        model: extractRunModel(latestRun.model, latestRun.usage),
+        durationMs: latestRun.finishedAt
+          ? Math.max(
+              0,
+              latestRun.finishedAt.getTime() - latestRun.startedAt.getTime(),
+            )
+          : null,
+        totalTokens: extractTotalTokens(latestRun.usage),
+      }
+    : null;
+
   return {
     id: doc.id,
     type: doc.type,
@@ -140,9 +218,38 @@ export async function getDocument(db: Db, documentId: string, versionNumber?: nu
       ...versionView(shown),
       reviewable: shown.id === latestExtracted?.id,
       parsedText: detail.parsedText,
+      latestRun: runView,
     },
     values,
   };
+}
+
+/** Raw PDF bytes and file name for a document's version (defaults to latest). */
+export async function getDocumentPdf(
+  db: Db,
+  documentId: string,
+  versionNumber?: number,
+) {
+  const version = await db.documentVersion.findFirst({
+    where: {
+      documentId,
+      ...(versionNumber !== undefined ? { number: versionNumber } : {}),
+    },
+    orderBy: { number: "desc" },
+    select: {
+      number: true,
+      fileName: true,
+      pdf: true,
+    },
+  });
+  if (!version) {
+    throw new NotFoundError(
+      versionNumber !== undefined
+        ? `Document ${documentId} has no version ${versionNumber}`
+        : `Document ${documentId} not found`,
+    );
+  }
+  return version;
 }
 
 export interface Progress {
@@ -153,13 +260,29 @@ export interface Progress {
   carriedOver: number;
 }
 
-const EMPTY_PROGRESS: Progress = { total: 0, pending: 0, approved: 0, corrected: 0, carriedOver: 0 };
+const EMPTY_PROGRESS: Progress = {
+  total: 0,
+  pending: 0,
+  approved: 0,
+  corrected: 0,
+  carriedOver: 0,
+};
 
 /** Review counts per version, one query for any number of versions. */
-export async function progressByVersion(db: Db, versionIds: string[]): Promise<Map<string, Progress>> {
+export async function progressByVersion(
+  db: Db,
+  versionIds: string[],
+): Promise<Map<string, Progress>> {
   if (versionIds.length === 0) return new Map();
   const rows = await db.$queryRaw<
-    { versionId: string; total: bigint; pending: bigint; approved: bigint; corrected: bigint; carried: bigint }[]
+    {
+      versionId: string;
+      total: bigint;
+      pending: bigint;
+      approved: bigint;
+      corrected: bigint;
+      carried: bigint;
+    }[]
   >`
     SELECT v."versionId"::text AS "versionId",
            count(*) AS total,
@@ -200,8 +323,13 @@ export async function getProgress(db: Db, documentId: string) {
   });
   const current = versions[0];
   if (!current) throw new NotFoundError(`Document ${documentId} not found`);
-  const counted = current.status === "extracted" ? current : versions.find((v) => v.status === "extracted");
-  const progress = counted ? (await progressByVersion(db, [counted.id])).get(counted.id) : undefined;
+  const counted =
+    current.status === "extracted"
+      ? current
+      : versions.find((v) => v.status === "extracted");
+  const progress = counted
+    ? (await progressByVersion(db, [counted.id])).get(counted.id)
+    : undefined;
   return {
     documentId,
     currentVersion: current.number,
@@ -221,7 +349,9 @@ export async function listDocuments(db: Db) {
       },
     },
   });
-  const counted = docs.map((d) => d.versions.find((v) => v.status === "extracted") ?? null);
+  const counted = docs.map(
+    (d) => d.versions.find((v) => v.status === "extracted") ?? null,
+  );
   const progress = await progressByVersion(
     db,
     counted.flatMap((v) => (v ? [v.id] : [])),

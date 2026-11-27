@@ -20,7 +20,10 @@ import { ConflictError, NotFoundError, ValidationError } from "./errors.js";
 export const LEASE_SECONDS = 30;
 export const MAX_ATTEMPTS = 3;
 
-type Tx = Omit<Db, "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends">;
+type Tx = Omit<
+  Db,
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$extends"
+>;
 
 // Timestamps are stored as UTC "timestamp without time zone" (Prisma's default).
 const NOW = "(now() AT TIME ZONE 'UTC')";
@@ -50,7 +53,9 @@ export async function createDocument(
 ): Promise<CreatedVersion> {
   const documentId = input.id ?? randomUUID();
   const version = await db.$transaction(async (tx) => {
-    await tx.document.create({ data: { id: documentId, type: input.type, title: input.title } });
+    await tx.document.create({
+      data: { id: documentId, type: input.type, title: input.title },
+    });
     return tx.documentVersion.create({
       data: { documentId, number: 1, fileName: input.fileName, pdf: input.pdf },
       select: { id: true, number: true },
@@ -60,7 +65,11 @@ export async function createDocument(
 }
 
 /** A new version is queued; it waits for earlier versions of the document to finish. */
-export async function addVersion(db: Db, documentId: string, file: UploadedFile): Promise<CreatedVersion> {
+export async function addVersion(
+  db: Db,
+  documentId: string,
+  file: UploadedFile,
+): Promise<CreatedVersion> {
   return db.$transaction(async (tx) => {
     await lockDocument(tx, documentId);
     const last = await tx.documentVersion.findFirst({
@@ -69,7 +78,12 @@ export async function addVersion(db: Db, documentId: string, file: UploadedFile)
       select: { number: true },
     });
     const version = await tx.documentVersion.create({
-      data: { documentId, number: (last?.number ?? 0) + 1, fileName: file.fileName, pdf: file.pdf },
+      data: {
+        documentId,
+        number: (last?.number ?? 0) + 1,
+        fileName: file.fileName,
+        pdf: file.pdf,
+      },
       select: { id: true, number: true },
     });
     return { documentId, versionId: version.id, number: version.number };
@@ -87,7 +101,10 @@ export interface Lease {
  * is not queued (already taken, finished, or failed) or an earlier version of
  * the same document has not finished yet.
  */
-export async function claimVersion(db: Db, versionId: string): Promise<Lease | null> {
+export async function claimVersion(
+  db: Db,
+  versionId: string,
+): Promise<Lease | null> {
   const token = randomUUID();
   const rows = await db.$queryRawUnsafe<{ attempts: number }[]>(
     `UPDATE "DocumentVersion" v
@@ -120,18 +137,39 @@ export async function heartbeat(db: Db, lease: Lease): Promise<boolean> {
   return count === 1;
 }
 
-export async function saveParsedText(db: Db, lease: Lease, parsedText: string): Promise<boolean> {
+export async function saveParsedText(
+  db: Db,
+  lease: Lease,
+  parsedText: string,
+): Promise<boolean> {
   const { count } = await db.documentVersion.updateMany({
-    where: { id: lease.versionId, leaseToken: lease.token, status: "extracting" },
+    where: {
+      id: lease.versionId,
+      leaseToken: lease.token,
+      status: "extracting",
+    },
     data: { parsedText },
   });
   return count === 1;
 }
 
-export async function failVersion(db: Db, lease: Lease, reason: string): Promise<boolean> {
+export async function failVersion(
+  db: Db,
+  lease: Lease,
+  reason: string,
+): Promise<boolean> {
   const { count } = await db.documentVersion.updateMany({
-    where: { id: lease.versionId, leaseToken: lease.token, status: "extracting" },
-    data: { status: "failed", failureReason: reason, leaseToken: null, leaseExpiresAt: null },
+    where: {
+      id: lease.versionId,
+      leaseToken: lease.token,
+      status: "extracting",
+    },
+    data: {
+      status: "failed",
+      failureReason: reason,
+      leaseToken: null,
+      leaseExpiresAt: null,
+    },
   });
   return count === 1;
 }
@@ -139,14 +177,33 @@ export async function failVersion(db: Db, lease: Lease, reason: string): Promise
 /** Loads what the worker needs to extract a version it holds the lease on. */
 export async function loadVersionForExtraction(db: Db, lease: Lease) {
   const version = await db.documentVersion.findFirst({
-    where: { id: lease.versionId, leaseToken: lease.token, status: "extracting" },
+    where: {
+      id: lease.versionId,
+      leaseToken: lease.token,
+      status: "extracting",
+    },
     // Selecting pdf explicitly overrides the client-wide omit.
-    select: { pdf: true, parsedText: true, document: { select: { type: true } } },
+    select: {
+      pdf: true,
+      parsedText: true,
+      document: { select: { type: true } },
+    },
   });
-  return version ? { pdf: version.pdf, parsedText: version.parsedText, type: version.document.type } : null;
+  return version
+    ? {
+        pdf: version.pdf,
+        parsedText: version.parsedText,
+        type: version.document.type,
+      }
+    : null;
 }
 
-export async function startRun(db: Db, lease: Lease, model: string, prompt: string): Promise<string> {
+export async function startRun(
+  db: Db,
+  lease: Lease,
+  model: string,
+  prompt: string,
+): Promise<string> {
   const run = await db.extractionRun.create({
     data: { versionId: lease.versionId, attempt: lease.attempt, model, prompt },
     select: { id: true },
@@ -157,7 +214,11 @@ export async function startRun(db: Db, lease: Lease, model: string, prompt: stri
 export async function finishRun(
   db: Db,
   runId: string,
-  result: { rawResponse?: string | null; error?: string | null; usage?: unknown },
+  result: {
+    rawResponse?: string | null;
+    error?: string | null;
+    usage?: unknown;
+  },
 ): Promise<void> {
   await db.extractionRun.update({
     where: { id: runId },
@@ -177,7 +238,11 @@ export type CommitResult = "committed" | "lost_lease";
  * transaction. Only the current lease holder can commit, and only once, so a
  * retry, a crash recovery or a second worker can never duplicate values.
  */
-export async function commitExtraction(db: Db, lease: Lease, values: ValidatedValue[]): Promise<CommitResult> {
+export async function commitExtraction(
+  db: Db,
+  lease: Lease,
+  values: ValidatedValue[],
+): Promise<CommitResult> {
   return db.$transaction(async (tx) => {
     const meta = await tx.documentVersion.findUnique({
       where: { id: lease.versionId },
@@ -188,13 +253,28 @@ export async function commitExtraction(db: Db, lease: Lease, values: ValidatedVa
 
     const version = await tx.documentVersion.findUnique({
       where: { id: lease.versionId },
-      select: { number: true, status: true, leaseToken: true, parsedText: true },
+      select: {
+        number: true,
+        status: true,
+        leaseToken: true,
+        parsedText: true,
+      },
     });
-    if (!version || version.status !== "extracting" || version.leaseToken !== lease.token) return "lost_lease";
-    if (version.parsedText === null) throw new Error("Cannot commit a version without parsed text");
+    if (
+      !version ||
+      version.status !== "extracting" ||
+      version.leaseToken !== lease.token
+    )
+      return "lost_lease";
+    if (version.parsedText === null)
+      throw new Error("Cannot commit a version without parsed text");
 
     const prior = await tx.documentVersion.findFirst({
-      where: { documentId: meta.documentId, status: "extracted", number: { lt: version.number } },
+      where: {
+        documentId: meta.documentId,
+        status: "extracted",
+        number: { lt: version.number },
+      },
       orderBy: { number: "desc" },
       select: {
         parsedText: true,
@@ -210,23 +290,44 @@ export async function commitExtraction(db: Db, lease: Lease, values: ValidatedVa
       },
     });
 
-    const fieldTypes = new Map<string, FieldType>(FIELD_DEFINITIONS[doc.type].map((f) => [f.field, f.type]));
+    const fieldTypes = new Map<string, FieldType>(
+      FIELD_DEFINITIONS[doc.type].map((f) => [f.field, f.type]),
+    );
+    const valueRows: {
+      id: string;
+      versionId: string;
+      field: string;
+      value: string | null;
+      evidence: string | null;
+      evidenceStart: number | null;
+      evidenceEnd: number | null;
+      gapReason: string | null;
+      baselineValueId: string | null;
+    }[] = [];
+    const reviewRows: {
+      valueId: string;
+      action: "approve" | "correct";
+      correctedValue: string | null;
+      note: string | null;
+      carriedFromReviewId: string;
+    }[] = [];
+
     for (const value of values) {
       const fieldType = fieldTypes.get(value.field);
-      if (!fieldType) throw new Error(`Unknown field ${value.field} for ${doc.type}`);
+      if (!fieldType)
+        throw new Error(`Unknown field ${value.field} for ${doc.type}`);
       const before = prior?.values.find((p) => p.field === value.field);
-      const created = await tx.extractedValue.create({
-        data: {
-          versionId: lease.versionId,
-          field: value.field,
-          value: value.value,
-          evidence: value.evidence,
-          evidenceStart: value.evidenceStart,
-          evidenceEnd: value.evidenceEnd,
-          gapReason: value.gapReason,
-          baselineValueId: before?.id ?? null,
-        },
-        select: { id: true },
+      const id = randomUUID();
+      valueRows.push({
+        id,
+        versionId: lease.versionId,
+        field: value.field,
+        value: value.value,
+        evidence: value.evidence,
+        evidenceStart: value.evidenceStart,
+        evidenceEnd: value.evidenceEnd,
+        gapReason: value.gapReason,
+        baselineValueId: before?.id ?? null,
       });
 
       const review = before?.reviews[0];
@@ -239,21 +340,31 @@ export async function commitExtraction(db: Db, lease: Lease, values: ValidatedVa
         nextText: version.parsedText,
       });
       if (decision.carry) {
-        await tx.review.create({
-          data: {
-            valueId: created.id,
-            action: review.action,
-            correctedValue: review.correctedValue,
-            note: review.note,
-            carriedFromReviewId: review.id,
-          },
+        reviewRows.push({
+          valueId: id,
+          action: review.action,
+          correctedValue: review.correctedValue,
+          note: review.note,
+          carriedFromReviewId: review.id,
         });
       }
     }
 
+    if (valueRows.length > 0) {
+      await tx.extractedValue.createMany({ data: valueRows });
+    }
+    if (reviewRows.length > 0) {
+      await tx.review.createMany({ data: reviewRows });
+    }
+
     await tx.documentVersion.update({
       where: { id: lease.versionId },
-      data: { status: "extracted", extractedAt: new Date(), leaseToken: null, leaseExpiresAt: null },
+      data: {
+        status: "extracted",
+        extractedAt: new Date(),
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
     });
     return "committed";
   });
@@ -302,7 +413,10 @@ export async function reconcile(db: Db): Promise<ReconcileResult> {
 }
 
 /** Puts the latest version back in the queue if it failed. Returns its id and whether it was requeued. */
-export async function retryLatest(db: Db, documentId: string): Promise<{ versionId: string; requeued: boolean }> {
+export async function retryLatest(
+  db: Db,
+  documentId: string,
+): Promise<{ versionId: string; requeued: boolean }> {
   return db.$transaction(async (tx) => {
     await lockDocument(tx, documentId);
     const latest = await tx.documentVersion.findFirst({
@@ -310,11 +424,19 @@ export async function retryLatest(db: Db, documentId: string): Promise<{ version
       orderBy: { number: "desc" },
       select: { id: true, status: true },
     });
-    if (!latest) throw new NotFoundError(`Document ${documentId} has no versions`);
-    if (latest.status !== "failed") return { versionId: latest.id, requeued: false };
+    if (!latest)
+      throw new NotFoundError(`Document ${documentId} has no versions`);
+    if (latest.status !== "failed")
+      return { versionId: latest.id, requeued: false };
     await tx.documentVersion.update({
       where: { id: latest.id },
-      data: { status: "queued", attempts: 0, failureReason: null, leaseToken: null, leaseExpiresAt: null },
+      data: {
+        status: "queued",
+        attempts: 0,
+        failureReason: null,
+        leaseToken: null,
+        leaseExpiresAt: null,
+      },
     });
     return { versionId: latest.id, requeued: true };
   });
@@ -336,7 +458,11 @@ export async function reviewValue(db: Db, valueId: string, input: ReviewInput) {
   return db.$transaction(async (tx) => {
     const value = await tx.extractedValue.findUnique({
       where: { id: valueId },
-      select: { field: true, versionId: true, version: { select: { documentId: true, number: true } } },
+      select: {
+        field: true,
+        versionId: true,
+        version: { select: { documentId: true, number: true } },
+      },
     });
     if (!value) throw new NotFoundError(`Value ${valueId} not found`);
     const doc = await lockDocument(tx, value.version.documentId);
@@ -354,11 +480,14 @@ export async function reviewValue(db: Db, valueId: string, input: ReviewInput) {
 
     let correctedValue: string | null = null;
     if (input.action === "correct") {
-      const fieldType = FIELD_DEFINITIONS[doc.type].find((f) => f.field === value.field)?.type ?? "string";
+      const fieldType =
+        FIELD_DEFINITIONS[doc.type].find((f) => f.field === value.field)
+          ?.type ?? "string";
       const raw = input.correctedValue?.trim() ?? "";
       if (raw === "") throw new ValidationError("A correction needs a value.");
       correctedValue = canonicalize(fieldType, raw);
-      if (correctedValue === null) throw new ValidationError(`"${raw}" is not a valid ${fieldType}.`);
+      if (correctedValue === null)
+        throw new ValidationError(`"${raw}" is not a valid ${fieldType}.`);
     }
 
     return tx.review.create({

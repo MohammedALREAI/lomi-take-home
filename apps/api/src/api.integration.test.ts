@@ -30,12 +30,19 @@ afterAll(async () => {
 });
 beforeEach(() => resetDb(db));
 
-const invoice = readFileSync(new URL("../../../fixtures/documents/invoice-001.pdf", import.meta.url));
+const invoice = readFileSync(
+  new URL("../../../fixtures/documents/invoice-001.pdf", import.meta.url),
+);
 
-function pdfForm(fields: Record<string, string>, file: Buffer | string = invoice, name = "invoice-001.pdf") {
+function pdfForm(
+  fields: Record<string, string>,
+  file: Uint8Array | string = invoice,
+  name = "invoice-001.pdf",
+) {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
-  form.set("file", new Blob([file]), name);
+  const part: BlobPart = typeof file === "string" ? file : new Uint8Array(file);
+  form.set("file", new Blob([part]), name);
   return form;
 }
 
@@ -47,7 +54,10 @@ async function call(method: string, path: string, body?: FormData | object) {
     init.headers = { "content-type": "application/json" };
   }
   const res = await fetch(base + path, init);
-  return { status: res.status, body: (await res.json()) as Record<string, any> };
+  return {
+    status: res.status,
+    body: (await res.json()) as Record<string, any>,
+  };
 }
 
 async function uploadInvoice() {
@@ -61,11 +71,46 @@ async function extractAsWorker(versionId: string) {
   const lease = (await claimVersion(db, versionId))!;
   await saveParsedText(db, lease, "Invoice Number: INV-2025-0847");
   await commitExtraction(db, lease, [
-    { field: "invoice_number", value: "INV-2025-0847", evidence: "Invoice Number: INV-2025-0847", evidenceStart: 0, evidenceEnd: 29, gapReason: null },
-    { field: "issue_date", value: null, evidence: null, evidenceStart: null, evidenceEnd: null, gapReason: "Not stated." },
-    { field: "due_date", value: null, evidence: null, evidenceStart: null, evidenceEnd: null, gapReason: "Not stated." },
-    { field: "vendor_name", value: null, evidence: null, evidenceStart: null, evidenceEnd: null, gapReason: "Not stated." },
-    { field: "total_amount", value: null, evidence: null, evidenceStart: null, evidenceEnd: null, gapReason: "Not stated." },
+    {
+      field: "invoice_number",
+      value: "INV-2025-0847",
+      evidence: "Invoice Number: INV-2025-0847",
+      evidenceStart: 0,
+      evidenceEnd: 29,
+      gapReason: null,
+    },
+    {
+      field: "issue_date",
+      value: null,
+      evidence: null,
+      evidenceStart: null,
+      evidenceEnd: null,
+      gapReason: "Not stated.",
+    },
+    {
+      field: "due_date",
+      value: null,
+      evidence: null,
+      evidenceStart: null,
+      evidenceEnd: null,
+      gapReason: "Not stated.",
+    },
+    {
+      field: "vendor_name",
+      value: null,
+      evidence: null,
+      evidenceStart: null,
+      evidenceEnd: null,
+      gapReason: "Not stated.",
+    },
+    {
+      field: "total_amount",
+      value: null,
+      evidence: null,
+      evidenceStart: null,
+      evidenceEnd: null,
+      gapReason: "Not stated.",
+    },
   ]);
 }
 
@@ -87,18 +132,39 @@ describe("uploads", () => {
   });
 
   it("rejects bad uploads with 400", async () => {
-    expect((await call("POST", "/documents", pdfForm({ type: "receipt" }))).status).toBe(400);
-    expect((await call("POST", "/documents", pdfForm({ type: "invoice" }, "hello", "notes.txt"))).status).toBe(400);
+    expect(
+      (await call("POST", "/documents", pdfForm({ type: "receipt" }))).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          "POST",
+          "/documents",
+          pdfForm({ type: "invoice" }, "hello", "notes.txt"),
+        )
+      ).status,
+    ).toBe(400);
     const noFile = new FormData();
     noFile.set("type", "invoice");
-    expect((await call("POST", "/documents", noFile)).body).toMatchObject({ statusCode: 400 });
+    expect((await call("POST", "/documents", noFile)).body).toMatchObject({
+      statusCode: 400,
+    });
   });
 
   it("queues a new version behind the current one", async () => {
     const { documentId } = await uploadInvoice();
-    const v2 = await call("POST", `/documents/${documentId}/versions`, pdfForm({}));
-    expect(v2).toMatchObject({ status: 202, body: { number: 2, status: "queued" } });
-    expect((await call("POST", "/documents/nope/versions", pdfForm({}))).status).toBe(404);
+    const v2 = await call(
+      "POST",
+      `/documents/${documentId}/versions`,
+      pdfForm({}),
+    );
+    expect(v2).toMatchObject({
+      status: 202,
+      body: { number: 2, status: "queued" },
+    });
+    expect(
+      (await call("POST", "/documents/nope/versions", pdfForm({}))).status,
+    ).toBe(404);
   });
 });
 
@@ -108,47 +174,121 @@ describe("reviews and progress", () => {
     await extractAsWorker(versionId);
 
     const doc = await call("GET", `/documents/${documentId}`);
-    const [invoiceNumber, issueDate] = doc.body.values as { id: string; field: string }[];
+    const [invoiceNumber, issueDate] = doc.body.values as {
+      id: string;
+      field: string;
+    }[];
     expect(invoiceNumber!.field).toBe("invoice_number");
 
-    expect((await call("POST", `/values/${invoiceNumber!.id}/review`, { action: "approve" })).status).toBe(201);
     expect(
-      (await call("POST", `/values/${issueDate!.id}/review`, { action: "correct", correctedValue: "Sept 14, 2025" })).status,
+      (
+        await call("POST", `/values/${invoiceNumber!.id}/review`, {
+          action: "approve",
+        })
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await call("POST", `/values/${issueDate!.id}/review`, {
+          action: "correct",
+          correctedValue: "Sept 14, 2025",
+        })
+      ).status,
     ).toBe(201);
     const corrected = await call("GET", `/documents/${documentId}`);
-    expect(corrected.body.values[1]).toMatchObject({ state: "corrected", value: null, effectiveValue: "2025-09-14" });
+    expect(corrected.body.values[1]).toMatchObject({
+      state: "corrected",
+      value: null,
+      effectiveValue: "2025-09-14",
+    });
 
     // Invalid reviews.
-    expect((await call("POST", `/values/${issueDate!.id}/review`, { action: "correct" })).status).toBe(400);
-    expect((await call("POST", `/values/${issueDate!.id}/review`, { action: "correct", correctedValue: "soon" })).status).toBe(400);
-    expect((await call("POST", `/values/${issueDate!.id}/review`, { action: "maybe" })).status).toBe(400);
-    expect((await call("POST", "/values/00000000-0000-0000-0000-000000000000/review", { action: "approve" })).status).toBe(404);
+    expect(
+      (
+        await call("POST", `/values/${issueDate!.id}/review`, {
+          action: "correct",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("POST", `/values/${issueDate!.id}/review`, {
+          action: "correct",
+          correctedValue: "soon",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("POST", `/values/${issueDate!.id}/review`, {
+          action: "maybe",
+        })
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          "POST",
+          "/values/00000000-0000-0000-0000-000000000000/review",
+          { action: "approve" },
+        )
+      ).status,
+    ).toBe(404);
 
-    expect((await call("GET", `/documents/${documentId}/progress`)).body).toMatchObject({
-      currentVersion: 1, countedVersion: 1, total: 5, pending: 3, approved: 1, corrected: 1, carriedOver: 0,
+    expect(
+      (await call("GET", `/documents/${documentId}/progress`)).body,
+    ).toMatchObject({
+      currentVersion: 1,
+      countedVersion: 1,
+      total: 5,
+      pending: 3,
+      approved: 1,
+      corrected: 1,
+      carriedOver: 0,
     });
     const list = await call("GET", "/documents");
     expect(list.body).toEqual([
-      expect.objectContaining({ id: documentId, status: "extracted", progress: expect.objectContaining({ pending: 3 }) }),
+      expect.objectContaining({
+        id: documentId,
+        status: "extracted",
+        progress: expect.objectContaining({ pending: 3 }),
+      }),
     ]);
   });
 
   it("returns 409 for a review of a version that is no longer current", async () => {
     const { documentId, versionId } = await uploadInvoice();
     await extractAsWorker(versionId);
-    const oldValue = (await call("GET", `/documents/${documentId}`)).body.values[0].id as string;
+    const oldValue = (await call("GET", `/documents/${documentId}`)).body
+      .values[0].id as string;
 
-    const v2 = await call("POST", `/documents/${documentId}/versions`, pdfForm({}));
+    const v2 = await call(
+      "POST",
+      `/documents/${documentId}/versions`,
+      pdfForm({}),
+    );
     await extractAsWorker(v2.body.versionId);
 
-    const res = await call("POST", `/values/${oldValue}/review`, { action: "approve" });
-    expect(res).toMatchObject({ status: 409, body: { message: expect.stringMatching(/no longer the current version/) } });
-    expect((await call("GET", `/documents/${documentId}?version=1`)).body.shownVersion).toMatchObject({
+    const res = await call("POST", `/values/${oldValue}/review`, {
+      action: "approve",
+    });
+    expect(res).toMatchObject({
+      status: 409,
+      body: { message: expect.stringMatching(/no longer the current version/) },
+    });
+    expect(
+      (await call("GET", `/documents/${documentId}?version=1`)).body
+        .shownVersion,
+    ).toMatchObject({
       number: 1,
       reviewable: false,
     });
-    expect((await call("GET", `/documents/${documentId}?version=7`)).status).toBe(404);
-    expect((await call("GET", `/documents/${documentId}?version=abc`)).status).toBe(400);
+    expect(
+      (await call("GET", `/documents/${documentId}?version=7`)).status,
+    ).toBe(404);
+    expect(
+      (await call("GET", `/documents/${documentId}?version=abc`)).status,
+    ).toBe(400);
   });
 });
 
@@ -156,13 +296,16 @@ describe("API docs", () => {
   it("documents every endpoint, with request bodies from the zod schemas", async () => {
     const { status, body } = await call("GET", "/docs-json");
     expect(status).toBe(200);
-    const operations = Object.entries(body.paths as Record<string, object>).flatMap(([path, methods]) =>
+    const operations = Object.entries(
+      body.paths as Record<string, object>,
+    ).flatMap(([path, methods]) =>
       Object.keys(methods).map((m) => `${m.toUpperCase()} ${path}`),
     );
     expect(operations.sort()).toEqual(
       [
         "GET /documents",
         "GET /documents/{id}",
+        "GET /documents/{id}/pdf",
         "GET /documents/{id}/progress",
         "GET /health",
         "POST /documents",
@@ -171,11 +314,20 @@ describe("API docs", () => {
         "POST /values/{id}/review",
       ].sort(),
     );
-    const review = body.paths["/values/{id}/review"].post.requestBody.content["application/json"].schema;
+    const review =
+      body.paths["/values/{id}/review"].post.requestBody.content[
+        "application/json"
+      ].schema;
     expect(JSON.stringify(review)).toContain("correctedValue");
-    const upload = body.paths["/documents"].post.requestBody.content["multipart/form-data"].schema;
+    const upload =
+      body.paths["/documents"].post.requestBody.content["multipart/form-data"]
+        .schema;
     expect(upload.required).toEqual(["type", "file"]);
-    expect(upload.properties.type.enum).toEqual(["invoice", "lease", "market_report"]);
+    expect(upload.properties.type.enum).toEqual([
+      "invoice",
+      "lease",
+      "market_report",
+    ]);
 
     const page = await fetch(`${base}/docs`);
     expect(page.status).toBe(200);
@@ -185,10 +337,19 @@ describe("API docs", () => {
 describe("retry", () => {
   it("requeues only a failed latest version", async () => {
     const { documentId, versionId } = await uploadInvoice();
-    expect((await call("POST", `/documents/${documentId}/retry`)).body).toEqual({ versionId, requeued: false });
-    await db.documentVersion.update({ where: { id: versionId }, data: { status: "failed", failureReason: "boom" } });
-    expect((await call("POST", `/documents/${documentId}/retry`)).body).toEqual({ versionId, requeued: true });
-    expect((await call("GET", `/documents/${documentId}`)).body.currentVersion).toMatchObject({
+    expect((await call("POST", `/documents/${documentId}/retry`)).body).toEqual(
+      { versionId, requeued: false },
+    );
+    await db.documentVersion.update({
+      where: { id: versionId },
+      data: { status: "failed", failureReason: "boom" },
+    });
+    expect((await call("POST", `/documents/${documentId}/retry`)).body).toEqual(
+      { versionId, requeued: true },
+    );
+    expect(
+      (await call("GET", `/documents/${documentId}`)).body.currentVersion,
+    ).toMatchObject({
       status: "queued",
       failureReason: null,
     });
